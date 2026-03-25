@@ -1129,7 +1129,6 @@ function resetBankroll() {
   state.bankroll = { starting:state.bankroll.starting, current:state.bankroll.starting, bets:[], kellyFraction:state.bankroll.kellyFraction };
   saveBankroll(); render();
 }
-}
 
 function renderMethod() {
   const app = document.getElementById('app');
