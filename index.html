@@ -697,14 +697,20 @@ async function runAIForGame(gameId) {
   const o = state.odds[oddsKey];
   const oddsStr = o ? `ML: ${game.home} ${o.homeML > 0 ? '+' : ''}${o.homeML} / ${game.away} ${o.awayML > 0 ? '+' : ''}${o.awayML}` : 'No odds';
 
-  const prompt = `You are an expert MLB analyst. Search for today's latest injury/lineup news for both teams, then analyze this game in 3-4 sentences. Be specific and actionable.
+  const bankroll = state.bankroll.current;
+  const prompt = `You are my sports betting advisor. My bankroll is $${bankroll.toFixed(2)}. Search for today's injury/lineup news for both teams, then tell me EXACTLY what to do.
 
 ${aT.nm || game.away} (${aSP}) @ ${hT.nm || game.home} (${hSP})
 Away 2025: ${aT.w}-${aT.l}, ${aT.rpg} RPG, ${aT.ra} RA | Home 2025: ${hT.w}-${hT.l}, ${hT.rpg} RPG, ${hT.ra} RA
 Pitcher ERAs: ${hSP}: ${PITCHER_ERA_CACHE[hSP] || '?'} / ${aSP}: ${PITCHER_ERA_CACHE[aSP] || '?'}
-Park: ${(PARK_FACTORS[game.home] || 1).toFixed(2)} | ${oddsStr}
+Park Factor: ${(PARK_FACTORS[game.home] || 1).toFixed(2)} | ${oddsStr}
 
-Respond ONLY with JSON: {"pick":"TEAM_ABBR or SKIP","win_prob":0.XX,"analysis":"3-4 sentences","key_factor":"one phrase"}`;
+Give me:
+1. BET or SKIP — if BET, which team and exactly how much money (1-5% of my bankroll)
+2. Why in 2 sentences max
+3. Your confidence: high, medium, or low
+
+Respond ONLY with JSON: {"action":"BET" or "SKIP","team":"TEAM_ABBR","bet_amount":X.XX,"confidence":"high/medium/low","win_prob":0.XX,"reason":"2 sentences max"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -723,7 +729,7 @@ Respond ONLY with JSON: {"pick":"TEAM_ABBR or SKIP","win_prob":0.XX,"analysis":"
     const m = txt.match(/\{[\s\S]*?\}/);
     if (!m) { state.aiResults[gameId] = { error: true }; render(); return; }
     const p = JSON.parse(m[0]);
-    state.aiResults[gameId] = { pick: p.pick, winProb: p.win_prob, analysis: p.analysis || '', keyFactor: p.key_factor || '' };
+    state.aiResults[gameId] = { action: p.action, team: p.team, betAmount: p.bet_amount, confidence: p.confidence, winProb: p.win_prob, reason: p.reason || '' };
     render();
   } catch (e) { state.aiResults[gameId] = { error: true }; render(); }
 }
@@ -878,11 +884,29 @@ function renderGames() {
             const ai = state.aiResults[g.id];
             if (!ai) return '<div style="margin-top:8px"><button class="ai-btn" onclick="runAIForGame(' + g.id + ')">🤖 Run Claude AI Analysis</button></div>';
             if (ai.loading) return '<div style="margin-top:8px"><button class="ai-btn" disabled><span class="spinner"></span>Claude is analyzing...</button></div>';
-            if (ai.error) return '<div style="margin-top:8px;color:var(--red);font-size:11px">AI analysis failed. Check API key.</div>';
-            return '<div class="ai-result"><div class="ai-label">🤖 CLAUDE AI' + (ai.pick && ai.pick !== 'SKIP' ? ' — PICK: ' + ai.pick : ai.pick === 'SKIP' ? ' — SKIP THIS GAME' : '') + (ai.winProb ? ' (' + (ai.winProb*100).toFixed(0) + '%)' : '') + '</div>' +
-              '<div style="color:var(--text)">' + (ai.analysis||'') + '</div>' +
-              (ai.keyFactor ? '<div style="margin-top:4px;color:var(--accent);font-size:10px">Key factor: ' + ai.keyFactor + '</div>' : '') +
-              '</div>';
+            if (ai.error) return '<div style="margin-top:8px;color:var(--red);font-size:11px">AI analysis failed. Check your API key in Settings.</div>';
+            const isBet = ai.action === 'BET' && ai.team && ai.betAmount;
+            const teamNm = TEAMS[ai.team]?.nm || ai.team || '?';
+            const confCol = ai.confidence === 'high' ? 'var(--green)' : ai.confidence === 'medium' ? 'var(--accent)' : 'var(--text-dim)';
+            if (isBet) {
+              return '<div class="ai-result" style="border-color:var(--green)">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">' +
+                '<div><span class="ai-label">🤖 CLAUDE SAYS: BET</span></div>' +
+                '<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;background:rgba(46,204,113,0.1);color:' + confCol + '">' + (ai.confidence||'').toUpperCase() + ' CONFIDENCE</span>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">' +
+                '<span style="font-family:var(--display);font-size:22px;font-weight:800;color:var(--green)">$' + ai.betAmount.toFixed(2) + '</span>' +
+                '<span style="font-family:var(--display);font-size:16px;font-weight:700;color:var(--accent)">on ' + teamNm + '</span>' +
+                (ai.winProb ? '<span style="font-size:11px;color:var(--text-dim)">(' + (ai.winProb*100).toFixed(0) + '% win prob)</span>' : '') +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--text-dim);line-height:1.5">' + (ai.reason||'') + '</div>' +
+                '</div>';
+            } else {
+              return '<div class="ai-result">' +
+                '<div class="ai-label">🤖 CLAUDE SAYS: SKIP THIS GAME</div>' +
+                '<div style="font-size:11px;color:var(--text-dim);line-height:1.5">' + (ai.reason||'No clear edge.') + '</div>' +
+                '</div>';
+            }
           })()}
         </div>`;
     }
