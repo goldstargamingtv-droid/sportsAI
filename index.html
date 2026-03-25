@@ -549,7 +549,7 @@ function kellyBet(ensembleProb, americanOdds, vegasImplied) {
 function saveBankroll() { localStorage.setItem('mlb_bankroll', JSON.stringify(state.bankroll)); }
 
 function logBet(gameId, team, amount, odds, result) {
-  state.bankroll.bets.push({ id:gameId, team, amount, odds, result, date:todayStr(), ts:Date.now() });
+  state.bankroll.bets.push({ id:gameId, team, amount, odds, result, date:today(), ts:Date.now() });
   if (result === 'win') {
     let payout;
     if (odds < 0) payout = amount * (100 / Math.abs(odds));
@@ -564,21 +564,23 @@ function logBet(gameId, team, amount, odds, result) {
 // ═══════════════════════════════════════════════════════════════════
 // CLAUDE AI — Full Slate Advisor
 // ═══════════════════════════════════════════════════════════════════
-async function getAIPicks() {
+async function getAIPicks(targetDate) {
   if (!state.anthropicKey) { alert('Add your Anthropic API key in Settings first!'); return; }
-  state.aiPicks = { loading: true };
+  const dateStr = targetDate || today();
+  const label = dateStr === today() ? 'today' : dateStr === tomorrow() ? 'tomorrow' : dateStr;
+  state.aiPicks = { loading: true, label };
   render();
 
   // Build the full slate summary for Claude
-  const todayGames = state.games.filter(g => g.date === today());
-  if (todayGames.length === 0) {
-    state.aiPicks = { error: 'No games today' };
+  const games = state.games.filter(g => g.date === dateStr);
+  if (games.length === 0) {
+    state.aiPicks = { error: 'No games found for ' + label + '. Try refreshing the page.' };
     render();
     return;
   }
 
   const bankroll = state.bankroll.current;
-  const gameList = todayGames.map((g, i) => {
+  const gameList = games.map((g, i) => {
     const hT = TEAMS[g.home] || {}, aT = TEAMS[g.away] || {};
     const oddsKey = g.home + '_' + g.away;
     const o = state.odds[oddsKey];
@@ -593,19 +595,19 @@ async function getAIPicks() {
   Park Factor: ${(PARK_FACTORS[g.home] || 1).toFixed(2)} | ${oddsStr}`;
   }).join('\n\n');
 
-  const prompt = `You are an expert MLB betting analyst. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
+  const prompt = `You are an expert MLB betting analyst. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. I want picks for ${label}'s games (${dateStr}).
 
-My bankroll is $${bankroll.toFixed(2)}. I use half-Kelly sizing (conservative). I want you to analyze today's full MLB slate and tell me exactly which games to bet on and which to skip.
+My bankroll is $${bankroll.toFixed(2)}. I use half-Kelly sizing (conservative). Analyze the full slate and tell me exactly which games to bet on and which to skip.
 
 RULES:
-- Search the web for today's latest injury news, lineup cards, and any breaking developments for the teams playing
+- Search the web for the latest injury news, lineup cards, and any breaking developments for the teams playing
 - Only recommend bets where you see genuine edge (model disagrees with the line, or key info the market hasn't priced in)
 - Size bets as a percentage of my bankroll (1-5% per bet, never more than 5%)
 - It's OK to recommend 0 bets if the slate is bad — protecting bankroll is more important than action
 - For each pick, explain WHY in 1-2 sentences
 - Be honest about confidence level
 
-TODAY'S SLATE (all times PT):
+GAMES (all times PT):
 ${gameList}
 
 Respond ONLY with this JSON format:
@@ -670,6 +672,7 @@ Respond ONLY with this JSON format:
     const parsed = JSON.parse(jsonMatch[0]);
     state.aiPicks = {
       data: parsed,
+      label: label,
       timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     };
     render();
@@ -1130,16 +1133,21 @@ function renderBankroll() {
   if (!ai) {
     aiSection = `
       <div style="text-align:center;padding:30px 0">
-        <button class="btn btn-primary" onclick="getAIPicks()" style="font-size:14px;padding:14px 32px;border-radius:10px">
-          🤖 Get Today's AI Picks
-        </button>
-        <p style="font-size:11px;color:var(--text-dim);margin-top:8px">Claude will analyze the full slate, search for injuries & news, and tell you exactly what to bet</p>
+        <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="getAIPicks(today())" style="font-size:14px;padding:14px 32px;border-radius:10px">
+            🤖 Get Today's Picks
+          </button>
+          <button class="btn btn-ghost" onclick="getAIPicks(tomorrow())" style="font-size:14px;padding:14px 32px;border-radius:10px;border-color:var(--accent);color:var(--accent)">
+            📅 Get Tomorrow's Picks
+          </button>
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);margin-top:8px">Claude analyzes the full slate, searches for injuries & news, and tells you exactly what to bet</p>
       </div>`;
   } else if (ai.loading) {
     aiSection = `
       <div style="text-align:center;padding:40px 0">
         <div><span class="spinner"></span></div>
-        <p style="font-size:12px;color:var(--accent);margin-top:12px">Claude is analyzing today's slate...</p>
+        <p style="font-size:12px;color:var(--accent);margin-top:12px">Claude is analyzing ${ai.label || "today"}'s slate...</p>
         <p style="font-size:10px;color:var(--text-dim);margin-top:4px">Searching for injuries, lineups, weather & news</p>
       </div>`;
   } else if (ai.error) {
@@ -1155,8 +1163,11 @@ function renderBankroll() {
     aiSection = `
       <div style="border:1px solid var(--accent);border-radius:10px;padding:16px;margin-bottom:16px;background:rgba(240,168,48,0.03)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <div style="font-size:10px;color:var(--accent);font-weight:700;letter-spacing:1px">🤖 CLAUDE'S PICKS — ${ai.timestamp}</div>
-          <button class="btn btn-ghost" onclick="getAIPicks()" style="font-size:10px;padding:4px 10px">Refresh</button>
+          <div style="font-size:10px;color:var(--accent);font-weight:700;letter-spacing:1px">🤖 CLAUDE'S PICKS — ${(ai.label||'today').toUpperCase()} — ${ai.timestamp}</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" onclick="getAIPicks(today())" style="font-size:9px;padding:3px 8px">Today</button>
+            <button class="btn btn-ghost" onclick="getAIPicks(tomorrow())" style="font-size:9px;padding:3px 8px">Tomorrow</button>
+          </div>
         </div>
         ${d.summary ? `<p style="font-size:12px;color:var(--text);margin-bottom:14px;line-height:1.5">${d.summary}</p>` : ''}
         
