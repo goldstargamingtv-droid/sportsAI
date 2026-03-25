@@ -393,6 +393,7 @@ let state = {
   // Bankroll
   bankroll: JSON.parse(localStorage.getItem('mlb_bankroll') || '{"starting":100,"current":100,"bets":[],"kellyFraction":0.5}'),
   aiResults: {}, // cached AI analyses by game id
+  aiPicks: null, // full slate AI picks
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -561,72 +562,170 @@ function logBet(gameId, team, amount, odds, result) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CLAUDE AI — 8th Model
+// CLAUDE AI — Full Slate Advisor
 // ═══════════════════════════════════════════════════════════════════
-async function askClaudeAI(game, models, odds) {
-  if (!state.anthropicKey) return null;
-  const hT = TEAMS[game.home], aT = TEAMS[game.away];
-  if (!hT || !aT) return null;
-  const oddsInfo = odds ? `Vegas: ${game.homeName} ${odds.homeML>0?'+':''}${odds.homeML} / ${game.awayName} ${odds.awayML>0?'+':''}${odds.awayML}` : 'No odds';
-  const prompt = `You are an expert MLB analyst. Analyze this game and return a JSON prediction.
+async function getAIPicks() {
+  if (!state.anthropicKey) { alert('Add your Anthropic API key in Settings first!'); return; }
+  state.aiPicks = { loading: true };
+  render();
 
-MATCHUP: ${game.awayName} (${game.awaySP||'TBD'}) @ ${game.homeName} (${game.homeSP||'TBD'})
-HOME 2025: ${hT.w}-${hT.l}, ${hT.rpg} RPG, ${hT.ra} RA/G, diff ${hT.rd>0?'+':''}${hT.rd}
-AWAY 2025: ${aT.w}-${aT.l}, ${aT.rpg} RPG, ${aT.ra} RA/G, diff ${aT.rd>0?'+':''}${aT.rd}
-Pitcher ERAs: ${game.homeSP}: ${PITCHER_ERA_CACHE[game.homeSP]||'?'} / ${game.awaySP}: ${PITCHER_ERA_CACHE[game.awaySP]||'?'}
-Park: ${(PARK_FACTORS[game.home]||1).toFixed(2)} · ${oddsInfo}
-Math models: Log5 ${(models.log5*100).toFixed(0)}% home, ELO ${(models.elo*100).toFixed(0)}%, Pitcher ${(models.pitcher*100).toFixed(0)}%
+  // Build the full slate summary for Claude
+  const todayGames = state.games.filter(g => g.date === today());
+  if (todayGames.length === 0) {
+    state.aiPicks = { error: 'No games today' };
+    render();
+    return;
+  }
 
-Search for today's injury reports, lineup cards, and breaking news for both teams. Then provide:
-1. Home win probability (0.20-0.80)
-2. A 2-3 sentence analysis covering the key factors
-3. The single most important factor in this game
+  const bankroll = state.bankroll.current;
+  const gameList = todayGames.map((g, i) => {
+    const hT = TEAMS[g.home] || {}, aT = TEAMS[g.away] || {};
+    const oddsKey = g.home + '_' + g.away;
+    const o = state.odds[oddsKey];
+    const hSP = g.homeSP?.name || 'TBD';
+    const aSP = g.awaySP?.name || 'TBD';
+    const hERA = PITCHER_ERA_CACHE[hSP] || '?';
+    const aERA = PITCHER_ERA_CACHE[aSP] || '?';
+    const oddsStr = o ? `ML: ${g.home} ${o.homeML > 0 ? '+' : ''}${o.homeML} / ${g.away} ${o.awayML > 0 ? '+' : ''}${o.awayML}` : 'No odds available';
+    return `Game ${i + 1}: ${aT.nm || g.away} @ ${hT.nm || g.home} (${g.time})
+  Away: ${aT.w || '?'}-${aT.l || '?'}, ${aT.rpg || '?'} RPG, ${aT.ra || '?'} RA | SP: ${aSP} (ERA: ${aERA})
+  Home: ${hT.w || '?'}-${hT.l || '?'}, ${hT.rpg || '?'} RPG, ${hT.ra || '?'} RA | SP: ${hSP} (ERA: ${hERA})
+  Park Factor: ${(PARK_FACTORS[g.home] || 1).toFixed(2)} | ${oddsStr}`;
+  }).join('\n\n');
 
-Respond ONLY with JSON: {"home_win_prob":0.XX,"analysis":"...","key_factor":"..."}`;
+  const prompt = `You are an expert MLB betting analyst. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
+
+My bankroll is $${bankroll.toFixed(2)}. I use half-Kelly sizing (conservative). I want you to analyze today's full MLB slate and tell me exactly which games to bet on and which to skip.
+
+RULES:
+- Search the web for today's latest injury news, lineup cards, and any breaking developments for the teams playing
+- Only recommend bets where you see genuine edge (model disagrees with the line, or key info the market hasn't priced in)
+- Size bets as a percentage of my bankroll (1-5% per bet, never more than 5%)
+- It's OK to recommend 0 bets if the slate is bad — protecting bankroll is more important than action
+- For each pick, explain WHY in 1-2 sentences
+- Be honest about confidence level
+
+TODAY'S SLATE (all times PT):
+${gameList}
+
+Respond ONLY with this JSON format:
+{
+  "summary": "One sentence overview of today's slate",
+  "picks": [
+    {
+      "team": "TEAM_ABBR",
+      "opponent": "OPP_ABBR",
+      "side": "home" or "away",
+      "confidence": "high" or "medium" or "low",
+      "bet_pct": 0.03,
+      "bet_amount": 3.00,
+      "win_prob": 0.62,
+      "reasoning": "1-2 sentence explanation"
+    }
+  ],
+  "skips": ["Brief note about games to avoid and why"],
+  "bankroll_advice": "Any overall advice about today's betting approach"
+}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':state.anthropicKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',max_tokens:400,
-        tools:[{type:'web_search_20250305',name:'web_search'}],
-        messages:[{role:'user',content:prompt}]
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': state.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) { console.error('Claude API:', res.status); return null; }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Claude API error:', res.status, errText);
+      state.aiPicks = { error: 'API error: ' + res.status + '. Check your key in Settings.' };
+      render();
+      return;
+    }
+
     const data = await res.json();
-    let txt = '';
-    for (const b of data.content) { if (b.type==='text') txt += b.text; }
-    const m = txt.match(/\{[\s\S]*?\}/);
-    if (!m) return null;
-    const p = JSON.parse(m[0]);
-    return { homeWinProb:Math.max(.2,Math.min(.8,p.home_win_prob)), analysis:p.analysis||'', keyFactor:p.key_factor||'' };
-  } catch(e) { console.error('Claude error:', e); return null; }
+    let fullText = '';
+    for (const block of data.content) {
+      if (block.type === 'text') fullText += block.text;
+    }
+
+    // Parse JSON from response
+    const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log('Claude raw response:', fullText.slice(0, 500));
+      state.aiPicks = { error: 'Could not parse AI response. Try again.' };
+      render();
+      return;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    state.aiPicks = {
+      data: parsed,
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    };
+    render();
+
+  } catch (e) {
+    console.error('Claude error:', e);
+    state.aiPicks = { error: 'Request failed: ' + e.message };
+    render();
+  }
 }
 
+// Single game AI analysis (for expanded game view)
 async function runAIForGame(gameId) {
+  if (!state.anthropicKey) { alert('Add your Anthropic API key in Settings first!'); return; }
   if (state.aiResults[gameId]?.loading) return;
-  state.aiResults[gameId] = { loading:true };
+  state.aiResults[gameId] = { loading: true };
   render();
-  
+
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
-  const oddsKey = game.home+'_'+game.away;
-  const odds = state.odds[oddsKey];
-  const vegasProb = odds ? odds.homeProb : null;
-  const hERA = game.homeSP_ERA || PITCHER_ERA_CACHE[game.homeSP?.name] || null;
-  const aERA = game.awaySP_ERA || PITCHER_ERA_CACHE[game.awaySP?.name] || null;
-  const models = {
-    log5: clamp(log5(((TEAMS[game.home]?.w||80)/((TEAMS[game.home]?.w||80)+(TEAMS[game.home]?.l||82)))*.6+pythag(TEAMS[game.home]?.rpg||4,TEAMS[game.home]?.ra||4)*.4+(TEAMS[game.home]?.adj||0)+HOME_ADV,
-      ((TEAMS[game.away]?.w||80)/((TEAMS[game.away]?.w||80)+(TEAMS[game.away]?.l||82)))*.6+pythag(TEAMS[game.away]?.rpg||4,TEAMS[game.away]?.ra||4)*.4+(TEAMS[game.away]?.adj||0))),
-    elo: clamp(1/(1+Math.pow(10,((elos[game.away]||1500)-(elos[game.home]||1500)-24)/400))),
-    pitcher: hERA&&aERA ? clamp(log5(pitcherRating(hERA),pitcherRating(aERA))) : 0.5,
-  };
-  
-  const result = await askClaudeAI({...game,homeSP:game.homeSP?.name||'TBD',awaySP:game.awaySP?.name||'TBD'}, models, odds);
-  state.aiResults[gameId] = result || { error:true };
-  render();
+  const hT = TEAMS[game.home] || {}, aT = TEAMS[game.away] || {};
+  const hSP = game.homeSP?.name || 'TBD';
+  const aSP = game.awaySP?.name || 'TBD';
+  const oddsKey = game.home + '_' + game.away;
+  const o = state.odds[oddsKey];
+  const oddsStr = o ? `ML: ${game.home} ${o.homeML > 0 ? '+' : ''}${o.homeML} / ${game.away} ${o.awayML > 0 ? '+' : ''}${o.awayML}` : 'No odds';
+
+  const prompt = `You are an expert MLB analyst. Search for today's latest injury/lineup news for both teams, then analyze this game in 3-4 sentences. Be specific and actionable.
+
+${aT.nm || game.away} (${aSP}) @ ${hT.nm || game.home} (${hSP})
+Away 2025: ${aT.w}-${aT.l}, ${aT.rpg} RPG, ${aT.ra} RA | Home 2025: ${hT.w}-${hT.l}, ${hT.rpg} RPG, ${hT.ra} RA
+Pitcher ERAs: ${hSP}: ${PITCHER_ERA_CACHE[hSP] || '?'} / ${aSP}: ${PITCHER_ERA_CACHE[aSP] || '?'}
+Park: ${(PARK_FACTORS[game.home] || 1).toFixed(2)} | ${oddsStr}
+
+Respond ONLY with JSON: {"pick":"TEAM_ABBR or SKIP","win_prob":0.XX,"analysis":"3-4 sentences","key_factor":"one phrase"}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': state.anthropicKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 500,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) { state.aiResults[gameId] = { error: true }; render(); return; }
+    const data = await res.json();
+    let txt = '';
+    for (const b of data.content) { if (b.type === 'text') txt += b.text; }
+    const m = txt.match(/\{[\s\S]*?\}/);
+    if (!m) { state.aiResults[gameId] = { error: true }; render(); return; }
+    const p = JSON.parse(m[0]);
+    state.aiResults[gameId] = { pick: p.pick, winProb: p.win_prob, analysis: p.analysis || '', keyFactor: p.key_factor || '' };
+    render();
+  } catch (e) { state.aiResults[gameId] = { error: true }; render(); }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -780,8 +879,8 @@ function renderGames() {
             if (!ai) return '<div style="margin-top:8px"><button class="ai-btn" onclick="runAIForGame(' + g.id + ')">🤖 Run Claude AI Analysis</button></div>';
             if (ai.loading) return '<div style="margin-top:8px"><button class="ai-btn" disabled><span class="spinner"></span>Claude is analyzing...</button></div>';
             if (ai.error) return '<div style="margin-top:8px;color:var(--red);font-size:11px">AI analysis failed. Check API key.</div>';
-            return '<div class="ai-result"><div class="ai-label">🤖 CLAUDE AI ANALYSIS (home win: ' + (ai.homeWinProb*100).toFixed(0) + '%)</div>' +
-              '<div style="color:var(--text)">' + ai.analysis + '</div>' +
+            return '<div class="ai-result"><div class="ai-label">🤖 CLAUDE AI' + (ai.pick && ai.pick !== 'SKIP' ? ' — PICK: ' + ai.pick : ai.pick === 'SKIP' ? ' — SKIP THIS GAME' : '') + (ai.winProb ? ' (' + (ai.winProb*100).toFixed(0) + '%)' : '') + '</div>' +
+              '<div style="color:var(--text)">' + (ai.analysis||'') + '</div>' +
               (ai.keyFactor ? '<div style="margin-top:4px;color:var(--accent);font-size:10px">Key factor: ' + ai.keyFactor + '</div>' : '') +
               '</div>';
           })()}
@@ -1001,51 +1100,79 @@ function renderBankroll() {
   const winRate = total > 0 ? (wins / total * 100) : 0;
   const totalWagered = b.bets.reduce((s, x) => s + (x.amount || 0), 0);
 
-  // Today's suggested bets
-  let todayBets = '';
-  const todayGames = state.games.filter(g => g.date === today());
-  if (todayGames.length > 0) {
-    const suggestions = todayGames.map(g => {
-      const oddsKey = g.home+'_'+g.away;
-      const o = state.odds[oddsKey];
-      const vegasProb = o ? o.homeProb : null;
-      const hERA = g.homeSP_ERA || PITCHER_ERA_CACHE[g.homeSP?.name] || null;
-      const aERA = g.awaySP_ERA || PITCHER_ERA_CACHE[g.awaySP?.name] || null;
-      const pred = ensemblePredict(g.home,g.away,vegasProb,hERA,aERA);
-      if (!pred) return null;
-      const favH = pred.homeWin >= 0.5;
-      const favP = Math.max(pred.homeWin, pred.awayWin);
-      const favO = favH ? (o?.homeML||-110) : (o?.awayML||-110);
-      const k = kellyBet(favP, favO);
-      return { ...g, pred, kelly:k, favHome:favH, favName:favH?g.homeName:g.awayName, favAbbr:favH?g.home:g.away };
-    }).filter(Boolean).sort((a,b) => b.kelly.edge - a.kelly.edge);
+  // AI Picks section
+  let aiSection = '';
+  const ai = state.aiPicks;
+  if (!ai) {
+    aiSection = `
+      <div style="text-align:center;padding:30px 0">
+        <button class="btn btn-primary" onclick="getAIPicks()" style="font-size:14px;padding:14px 32px;border-radius:10px">
+          🤖 Get Today's AI Picks
+        </button>
+        <p style="font-size:11px;color:var(--text-dim);margin-top:8px">Claude will analyze the full slate, search for injuries & news, and tell you exactly what to bet</p>
+      </div>`;
+  } else if (ai.loading) {
+    aiSection = `
+      <div style="text-align:center;padding:40px 0">
+        <div><span class="spinner"></span></div>
+        <p style="font-size:12px;color:var(--accent);margin-top:12px">Claude is analyzing today's slate...</p>
+        <p style="font-size:10px;color:var(--text-dim);margin-top:4px">Searching for injuries, lineups, weather & news</p>
+      </div>`;
+  } else if (ai.error) {
+    aiSection = `
+      <div style="text-align:center;padding:20px 0">
+        <p style="color:var(--red);font-size:13px">${ai.error}</p>
+        <button class="btn btn-ghost" onclick="state.aiPicks=null;render()" style="margin-top:8px">Try Again</button>
+      </div>`;
+  } else if (ai.data) {
+    const d = ai.data;
+    const totalBet = (d.picks || []).reduce((s, p) => s + (p.bet_amount || 0), 0);
 
-    const bettable = suggestions.filter(s => !s.kelly.skip);
-    const totalUnits = bettable.reduce((s,x) => s + x.kelly.units, 0).toFixed(1);
-    const totalDollars = bettable.reduce((s,x) => s + x.kelly.bet, 0).toFixed(2);
+    aiSection = `
+      <div style="border:1px solid var(--accent);border-radius:10px;padding:16px;margin-bottom:16px;background:rgba(240,168,48,0.03)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-size:10px;color:var(--accent);font-weight:700;letter-spacing:1px">🤖 CLAUDE'S PICKS — ${ai.timestamp}</div>
+          <button class="btn btn-ghost" onclick="getAIPicks()" style="font-size:10px;padding:4px 10px">Refresh</button>
+        </div>
+        ${d.summary ? `<p style="font-size:12px;color:var(--text);margin-bottom:14px;line-height:1.5">${d.summary}</p>` : ''}
+        
+        ${(d.picks && d.picks.length > 0) ? d.picks.map((pick, i) => {
+          const confColor = pick.confidence === 'high' ? 'var(--green)' : pick.confidence === 'medium' ? 'var(--accent)' : 'var(--text-dim)';
+          const confBg = pick.confidence === 'high' ? 'rgba(46,204,113,0.1)' : pick.confidence === 'medium' ? 'rgba(240,168,48,0.1)' : 'rgba(100,116,139,0.1)';
+          const teamName = TEAMS[pick.team]?.nm || pick.team;
+          const oppName = TEAMS[pick.opponent]?.nm || pick.opponent;
+          return `
+            <div class="bankroll-card" style="border-color:${confColor}33">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:200px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <span style="font-family:var(--display);font-size:16px;font-weight:800;color:var(--accent)">${teamName}</span>
+                    <span style="font-size:10px;color:var(--text-dim)">${pick.side === 'home' ? 'vs' : '@'} ${oppName}</span>
+                    <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;background:${confBg};color:${confColor}">${(pick.confidence||'').toUpperCase()}</span>
+                  </div>
+                  <p style="font-size:11px;color:var(--text-dim);line-height:1.5">${pick.reasoning || ''}</p>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-family:var(--display);font-size:22px;font-weight:800;color:var(--green)">$${(pick.bet_amount || 0).toFixed(2)}</div>
+                  <div style="font-size:10px;color:var(--text-dim)">${((pick.bet_pct || 0) * 100).toFixed(1)}% of bankroll</div>
+                  <div style="font-size:10px;color:var(--text-dim)">${((pick.win_prob || 0) * 100).toFixed(0)}% win prob</div>
+                </div>
+              </div>
+            </div>`;
+        }).join('') : '<div style="text-align:center;padding:16px;color:var(--text-dim)">No bets recommended today — Claude says sit this one out.</div>'}
 
-    todayBets = `
-      <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin:20px 0 10px">TODAY'S SUGGESTED BETS (${bettable.length}/${suggestions.length} games · ${totalUnits}u · $${totalDollars})</div>
-      ${suggestions.map(s => {
-        const winPct = (Math.max(s.pred.homeWin,s.pred.awayWin)*100).toFixed(0);
-        if (s.kelly.skip) {
-          return `<div class="bankroll-card" style="opacity:.5">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><strong>${s.favName}</strong> vs ${s.favHome?s.awayName:s.homeName} <span class="kelly-tag kelly-skip">SKIP</span></div>
-              <div style="font-size:11px;color:var(--text-dim)">${winPct}% · Edge: ${(s.kelly.edge*100).toFixed(1)}%</div>
-            </div>
-          </div>`;
-        }
-        return `<div class="bankroll-card">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div><strong style="color:var(--accent)">${s.favName}</strong> vs ${s.favHome?s.awayName:s.homeName} <span class="kelly-tag kelly-bet">BET</span></div>
-            <div style="font-size:11px;color:var(--green);font-weight:700">${s.kelly.units}u · $${s.kelly.bet.toFixed(2)}</div>
-          </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
-            ${winPct}% win prob · ${(s.kelly.edge*100).toFixed(1)}% edge · ${s.homeSP?.name||'TBD'} vs ${s.awaySP?.name||'TBD'} · ${s.time}
-          </div>
-        </div>`;
-      }).join('')}`;
+        ${(d.picks && d.picks.length > 0) ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--border);margin-top:8px">
+            <span style="font-size:11px;color:var(--text-dim)">Total exposure: <strong style="color:var(--text)">$${totalBet.toFixed(2)}</strong> (${(totalBet / b.current * 100).toFixed(1)}% of bankroll)</span>
+            <span style="font-size:11px;color:var(--text-dim)">${d.picks.length} pick${d.picks.length !== 1 ? 's' : ''}</span>
+          </div>` : ''}
+
+        ${d.bankroll_advice ? `<div style="margin-top:8px;padding:8px 12px;background:var(--surface);border-radius:6px;font-size:11px;color:var(--text-dim);line-height:1.5">💡 ${d.bankroll_advice}</div>` : ''}
+        
+        ${d.skips && d.skips.length > 0 ? `<div style="margin-top:8px;font-size:10px;color:var(--text-mute);line-height:1.5">
+          <strong>Skipped:</strong> ${d.skips.join(' · ')}
+        </div>` : ''}
+      </div>`;
   }
 
   // Bet history
@@ -1059,7 +1186,7 @@ function renderBankroll() {
           const isWin = bet.result === 'win';
           return `<div class="bet-log-row">
             <div>${bet.team} · $${bet.amount?.toFixed(2)} · ${bet.date}</div>
-            <div class="${isWin?'pnl-pos':'pnl-neg'}" style="font-weight:700">${isWin?'WIN':'LOSS'}</div>
+            <div class="${isWin ? 'pnl-pos' : 'pnl-neg'}" style="font-weight:700">${isWin ? 'WIN' : 'LOSS'}</div>
           </div>`;
         }).join('')}
       </div>`;
@@ -1072,27 +1199,22 @@ function renderBankroll() {
         <div class="bankroll-stat-label">BANKROLL</div>
       </div>
       <div class="bankroll-stat">
-        <div class="bankroll-stat-val ${pnl>=0?'pnl-pos':'pnl-neg'}">${pnl>=0?'+':''}$${pnl.toFixed(2)}</div>
+        <div class="bankroll-stat-val ${pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</div>
         <div class="bankroll-stat-label">P&L</div>
       </div>
       <div class="bankroll-stat">
-        <div class="bankroll-stat-val ${roi>=0?'pnl-pos':'pnl-neg'}">${roi>=0?'+':''}${roi.toFixed(1)}%</div>
+        <div class="bankroll-stat-val ${roi >= 0 ? 'pnl-pos' : 'pnl-neg'}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</div>
         <div class="bankroll-stat-label">ROI</div>
       </div>
       <div class="bankroll-stat">
         <div class="bankroll-stat-val" style="color:var(--text)">${total > 0 ? winRate.toFixed(0) + '%' : '—'}</div>
         <div class="bankroll-stat-label">WIN RATE (${wins}-${losses})</div>
       </div>
-      <div class="bankroll-stat">
-        <div class="bankroll-stat-val" style="color:var(--text)">$${totalWagered.toFixed(2)}</div>
-        <div class="bankroll-stat-label">TOTAL WAGERED</div>
-      </div>
     </div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
-      Half Kelly sizing · Max 5% per game · Min 2% edge to bet · Adjust in Settings
-    </div>
-    ${todayBets}
+
+    ${aiSection}
     ${historyHtml}
+
     <div style="margin-top:20px">
       <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin-bottom:8px">LOG A BET RESULT</div>
       <div class="bankroll-card">
