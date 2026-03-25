@@ -521,18 +521,28 @@ async function fetchPitcherERA(playerName) {
 const MIN_EDGE = 0.02;
 const MAX_BET_PCT = 0.05;
 
-function kellyBet(winProb, americanOdds) {
+function kellyBet(ensembleProb, americanOdds, vegasImplied) {
   let decimal;
   if (americanOdds < 0) decimal = 1 + (100 / Math.abs(americanOdds));
   else decimal = 1 + (americanOdds / 100);
   const b = decimal - 1;
-  const p = winProb, q = 1 - p;
+  
+  // Use the ensemble prob for edge calculation, but compare against 
+  // what the odds actually imply (break-even point), not the full ensemble
+  // Edge = our model's probability minus the break-even probability from the odds
+  const breakEven = 1 / decimal; // what you need to win to break even at these odds
+  const edge = ensembleProb - breakEven;
+  
+  // Kelly: f* = edge / (decimal - 1) = (p - breakEven) / b
+  // Or equivalently: (b*p - q) / b
+  const p = ensembleProb, q = 1 - p;
   const kelly = (b * p - q) / b;
-  if (kelly <= MIN_EDGE) return { bet:0, edge:kelly, skip:true, reason:'Edge too thin', units:0, pct:0 };
+  
+  if (edge <= 0.01 || kelly <= 0.005) return { bet:0, edge:edge, skip:true, reason:'Edge too thin', units:0, pct:0 };
   const fraction = state.bankroll.kellyFraction || 0.5;
   const betPct = Math.min(kelly * fraction, MAX_BET_PCT);
   const betAmount = Math.round(state.bankroll.current * betPct * 100) / 100;
-  return { bet:betAmount, edge:kelly, pct:betPct, skip:false, units:+(betPct*100).toFixed(2) };
+  return { bet:betAmount, edge:edge, pct:betPct, skip:false, units:+(betPct*100).toFixed(2) };
 }
 
 function saveBankroll() { localStorage.setItem('mlb_bankroll', JSON.stringify(state.bankroll)); }
@@ -753,7 +763,7 @@ function renderGames() {
             // Kelly bet sizing
             const favH = pred.homeWin>=0.5;
             const favP = Math.max(pred.homeWin,pred.awayWin);
-            const favO = favH ? (odds?.homeML||-150) : (odds?.awayML||-150);
+            const favO = favH ? (odds?.homeML||-110) : (odds?.awayML||-110);
             const k = kellyBet(favP, favO);
             const favNm = favH ? g.homeName : g.awayName;
             return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">' +
@@ -1005,7 +1015,7 @@ function renderBankroll() {
       if (!pred) return null;
       const favH = pred.homeWin >= 0.5;
       const favP = Math.max(pred.homeWin, pred.awayWin);
-      const favO = favH ? (o?.homeML||-150) : (o?.awayML||-150);
+      const favO = favH ? (o?.homeML||-110) : (o?.awayML||-110);
       const k = kellyBet(favP, favO);
       return { ...g, pred, kelly:k, favHome:favH, favName:favH?g.homeName:g.awayName, favAbbr:favH?g.home:g.away };
     }).filter(Boolean).sort((a,b) => b.kelly.edge - a.kelly.edge);

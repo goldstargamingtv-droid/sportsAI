@@ -193,10 +193,14 @@ function kellyBet(winProb, americanOdds, bankroll = BANKROLL) {
   const p = winProb;
   const q = 1 - p;
 
+  // Edge = our probability minus break-even probability from odds
+  const breakEven = 1 / decimal;
+  const edge = p - breakEven;
+
   // Kelly formula: f* = (bp - q) / b
   const kelly = (b * p - q) / b;
 
-  if (kelly <= MIN_EDGE) return { bet: 0, edge: kelly, skip: true, reason: 'Edge too thin' };
+  if (edge <= 0.01 || kelly <= 0.005) return { bet: 0, edge: edge, skip: true, reason: 'Edge too thin' };
 
   const halfKelly = kelly * KELLY_FRACTION;
   const betPct = Math.min(halfKelly, MAX_BET_PCT);
@@ -483,7 +487,7 @@ async function main() {
     // Kelly bet sizing
     const favHome = ensemble.homeWin >= 0.5;
     const favProb = Math.max(ensemble.homeWin, ensemble.awayWin);
-    const favOdds = favHome ? (o?.homeML || -150) : (o?.awayML || -150); // fallback odds
+    const favOdds = favHome ? (o?.homeML || -110) : (o?.awayML || -110);
     const kelly = kellyBet(favProb, favOdds);
 
     picks.push({ ...g, models, claude, ensemble, kelly, odds: o });
