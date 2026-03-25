@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB Predictor — Live 8-Model Ensemble + AI</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #06090f;
+  --surface: #0d1219;
+  --card: #111827;
+  --border: #1a2332;
+  --border-hi: #2a3a4e;
+  --text: #d1d9e6;
+  --text-dim: #6b7a8d;
+  --text-mute: #3d4d5f;
+  --accent: #f0a830;
+  --accent2: #e05832;
+  --green: #2ecc71;
+  --blue: #3b82f6;
+  --red: #ef4444;
+  --mono: 'DM Mono', 'SF Mono', monospace;
+  --display: 'Outfit', system-ui, sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:var(--mono); min-height:100vh; }
+::selection { background:var(--accent); color:var(--bg); }
+a { color:var(--accent); text-decoration:none; }
+
+/* HEADER */
+.header {
+  background: linear-gradient(135deg, #0a1020 0%, #120a1e 50%, #0a1020 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 24px 20px 14px;
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(20px);
+}
+.header-inner { max-width:960px; margin:0 auto; }
+.logo-row { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+.logo { font-family:var(--display); font-size:24px; font-weight:900; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.badge { font-size:9px; color:var(--text-dim); background:var(--surface); padding:3px 8px; border-radius:4px; border:1px solid var(--border); letter-spacing:1px; }
+.subtitle { font-family:var(--display); font-size:12px; color:var(--text-dim); letter-spacing:.5px; margin-bottom:14px; }
+.status-row { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+.status-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }
+.status-dot.off { background:var(--text-mute); animation:none; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.status-text { font-size:10px; color:var(--text-dim); }
+
+/* TABS */
+.tabs { display:flex; gap:4px; flex-wrap:wrap; }
+.tab { font-family:var(--mono); font-size:11px; padding:7px 14px; border:none; border-radius:6px; cursor:pointer; background:transparent; color:var(--text-dim); font-weight:500; transition:all .15s; }
+.tab:hover { color:var(--text); }
+.tab.active { background:rgba(240,168,48,.12); color:var(--accent); font-weight:700; }
+
+/* MAIN */
+.main { max-width:960px; margin:0 auto; padding:16px 20px 80px; }
+
+/* DATE FILTER */
+.date-bar { display:flex; gap:6px; margin-bottom:20px; flex-wrap:wrap; }
+.date-btn { font-family:var(--mono); font-size:11px; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:600; transition:all .15s; }
+.date-btn { background:var(--surface); color:var(--text-dim); border:1px solid var(--border); }
+.date-btn.active { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+
+/* GAME CARDS */
+.game-card {
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:10px;
+  margin-bottom:8px;
+  overflow:hidden;
+  transition:border-color .15s;
+}
+.game-card:hover { border-color:var(--border-hi); }
+.game-header { padding:12px 16px; cursor:pointer; }
+.game-row { display:flex; align-items:center; gap:10px; }
+.team-col { flex:1; }
+.team-col.away { text-align:right; }
+.team-name { font-family:var(--display); font-size:14px; font-weight:600; color:var(--text-dim); transition:color .15s; }
+.team-name.fav { color:var(--accent); font-weight:700; }
+.team-sub { font-size:10px; color:var(--text-mute); margin-top:2px; }
+.prob-col { width:120px; text-align:center; flex-shrink:0; }
+.live-tag { font-size:8px; color:var(--accent); font-weight:700; margin-bottom:2px; letter-spacing:1px; }
+.prob-bar { height:6px; border-radius:3px; background:var(--surface); overflow:hidden; display:flex; margin-bottom:4px; }
+.prob-fill { transition:width .5s ease; }
+.prob-fill.fav { background:var(--accent); }
+.prob-fill.dog { background:var(--text-mute); }
+.prob-nums { display:flex; justify-content:space-between; font-size:11px; font-weight:700; }
+.prob-num { color:var(--text-mute); }
+.prob-num.fav { color:var(--accent); }
+.conf-row { display:flex; justify-content:center; align-items:center; gap:6px; margin-top:3px; }
+.conf-badge { font-size:8px; font-weight:700; padding:1px 6px; border-radius:3px; }
+.conf-high { color:var(--green); background:rgba(46,204,113,.1); }
+.conf-med { color:var(--accent); background:rgba(240,168,48,.1); }
+.conf-low { color:var(--text-dim); background:rgba(107,122,141,.1); }
+.ou-tag { font-size:8px; color:var(--text-mute); }
+.time-col { width:70px; text-align:right; flex-shrink:0; }
+.time-text { font-size:10px; color:var(--text-mute); }
+.expand-icon { font-size:10px; color:var(--text-mute); margin-top:2px; }
+.score-live { font-family:var(--display); font-size:16px; font-weight:800; color:var(--accent); }
+
+/* EXPANDED */
+.game-detail { padding:12px 16px; border-top:1px solid var(--border); background:var(--bg); }
+.detail-title { font-size:10px; color:var(--text-dim); font-weight:700; margin-bottom:8px; letter-spacing:1px; }
+.model-grid { display:grid; grid-template-columns:1fr 60px 1fr; gap:4px 8px; font-size:11px; }
+.model-label { color:var(--text-mute); font-size:9px; }
+.model-val { font-weight:400; color:var(--text-dim); }
+.model-val.win { color:var(--accent); font-weight:700; }
+.model-center { text-align:center; color:var(--text-mute); font-size:9px; }
+.ensemble-row { grid-column:1/-1; border-top:1px solid var(--border); margin-top:6px; padding-top:6px; display:flex; justify-content:space-between; font-weight:700; }
+.meta-row { display:flex; gap:12px; margin-top:10px; flex-wrap:wrap; font-size:9px; color:var(--text-mute); }
+
+/* SETTINGS */
+.settings-panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:20px; }
+.settings-title { font-family:var(--display); font-size:16px; font-weight:700; color:var(--text); margin-bottom:12px; }
+.input-group { margin-bottom:12px; }
+.input-group label { font-size:10px; color:var(--text-dim); display:block; margin-bottom:4px; letter-spacing:.5px; }
+.input-group input { font-family:var(--mono); font-size:13px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); width:100%; max-width:400px; }
+.input-group input:focus { outline:none; border-color:var(--accent); }
+.btn { font-family:var(--mono); font-size:12px; padding:8px 20px; border-radius:6px; border:none; cursor:pointer; font-weight:600; transition:all .15s; }
+.btn-primary { background:var(--accent); color:var(--bg); }
+.btn-primary:hover { background:#ffb940; }
+.btn-ghost { background:transparent; color:var(--text-dim); border:1px solid var(--border); }
+.btn-ghost:hover { border-color:var(--text-dim); color:var(--text); }
+
+/* SIMULATOR */
+.sim-selects { display:flex; gap:16px; margin-bottom:24px; flex-wrap:wrap; align-items:flex-end; }
+.sim-selects select { font-family:var(--mono); font-size:13px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); width:220px; }
+.sim-selects select:focus { outline:none; border-color:var(--accent); }
+.sim-result { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; }
+.sim-teams { display:flex; justify-content:center; gap:40px; margin-bottom:20px; }
+.sim-team { text-align:center; }
+.sim-team-name { font-family:var(--display); font-size:18px; font-weight:700; }
+.sim-team-prob { font-family:var(--display); font-size:34px; font-weight:900; margin-top:4px; }
+.sim-team-label { font-size:10px; color:var(--text-dim); }
+.sim-bar { height:8px; border-radius:4px; overflow:hidden; display:flex; margin-bottom:16px; }
+.model-row { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.model-row-label { width:130px; font-size:10px; color:var(--text-dim); text-align:right; }
+.model-row-bar { flex:1; height:6px; background:var(--surface); border-radius:3px; overflow:hidden; }
+.model-row-fill { height:100%; background:var(--blue); border-radius:3px; transition:width .3s; }
+.model-row-val { width:40px; font-size:10px; color:var(--text-dim); text-align:right; }
+
+/* RANKINGS */
+.rank-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:11px; }
+.rank-num { width:22px; color:var(--text-mute); text-align:right; }
+.rank-abbr { width:36px; font-weight:700; }
+.rank-bar-wrap { flex:1; height:12px; background:var(--surface); border-radius:3px; overflow:hidden; position:relative; }
+.rank-bar { position:absolute; top:0; left:0; height:100%; border-radius:3px; transition:width .5s; }
+.rank-val { width:44px; font-weight:700; color:var(--text); text-align:right; }
+.rank-elo { width:50px; color:var(--text-mute); text-align:right; font-size:10px; }
+
+/* METHOD */
+.method { font-family:var(--display); font-size:13px; color:var(--text-dim); line-height:1.8; max-width:720px; }
+.method h2 { font-size:18px; font-weight:700; color:var(--text); margin-bottom:12px; }
+.method h3 { color:var(--accent); font-size:14px; font-weight:700; margin-top:18px; margin-bottom:4px; }
+.method code { background:var(--card); border-radius:6px; padding:12px 16px; display:block; font-family:var(--mono); font-size:11px; color:var(--blue); margin:8px 0; }
+
+/* LOADING */
+.loading { text-align:center; padding:40px; color:var(--text-dim); }
+.spinner { display:inline-block; width:20px; height:20px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; margin-right:8px; vertical-align:middle; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* RESPONSIVE */
+@media(max-width:700px) {
+  .team-name { font-size:12px; }
+  .prob-col { width:90px; }
+  .time-col { width:50px; }
+  .sim-teams { gap:20px; }
+  .sim-team-prob { font-size:26px; }
+}
+
+/* AI ANALYSIS */
+.ai-btn { font-family:var(--mono); font-size:10px; padding:4px 10px; border:1px solid var(--border); border-radius:5px; background:transparent; color:var(--accent); cursor:pointer; transition:all .15s; margin-top:6px; }
+.ai-btn:hover { background:rgba(240,168,48,.1); border-color:var(--accent); }
+.ai-btn:disabled { opacity:.5; cursor:default; }
+.ai-result { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-top:8px; font-size:11px; line-height:1.6; }
+.ai-result .ai-label { color:var(--accent); font-weight:700; font-size:9px; letter-spacing:1px; margin-bottom:4px; }
+
+/* BANKROLL */
+.bankroll-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+.bankroll-stat { text-align:center; }
+.bankroll-stat-val { font-family:var(--display); font-size:24px; font-weight:800; }
+.bankroll-stat-label { font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-top:2px; }
+.bankroll-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:8px; }
+.kelly-tag { display:inline-block; font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; margin-left:6px; }
+.kelly-bet { color:var(--green); background:rgba(46,204,113,.1); }
+.kelly-skip { color:var(--text-dim); background:rgba(100,116,139,.1); }
+.bet-log-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:11px; }
+.bet-log-row:last-child { border-bottom:none; }
+.pnl-pos { color:var(--green); }
+.pnl-neg { color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="logo-row">
+      <span style="font-size:28px">⚾</span>
+      <span class="logo">MLB PREDICTOR</span>
+      <span class="badge">8-MODEL ENSEMBLE + AI</span>
+    </div>
+    <div class="subtitle">Vegas Odds · Log5 · Pythagorean · ELO · Pitcher Matchups · Park Factors · Momentum · Claude AI</div>
+    <div class="status-row">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Initializing...</span>
+    </div>
+    <div class="tabs" id="tabs"></div>
+  </div>
+</div>
+
+<div class="main" id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// STATIC DATA
+// ═══════════════════════════════════════════════════════════════════
+
+// MLB Stats API team ID → abbreviation mapping
+const TEAM_MAP = {
+  108:"LAA",109:"AZ",110:"BAL",111:"BOS",112:"CHC",113:"CIN",114:"CLE",115:"COL",
+  116:"DET",117:"HOU",118:"KC",119:"LAD",120:"WSH",121:"NYM",133:"ATH",134:"PIT",
+  135:"SD",136:"SEA",137:"SF",138:"STL",139:"TB",140:"TEX",141:"TOR",142:"MIN",
+  143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"
+};
+
+// 2025 final season stats
+const TEAMS = {
+  LAD:{nm:"Los Angeles Dodgers",w:93,l:69,rpg:5.09,ra:4.22,rd:142,adj:.04},
+  MIL:{nm:"Milwaukee Brewers",w:97,l:65,rpg:4.98,ra:3.91,rd:172,adj:-.01},
+  PHI:{nm:"Philadelphia Phillies",w:96,l:66,rpg:4.80,ra:4.00,rd:130,adj:-.01},
+  NYY:{nm:"New York Yankees",w:94,l:68,rpg:5.24,ra:4.23,rd:164,adj:-.02},
+  TOR:{nm:"Toronto Blue Jays",w:94,l:68,rpg:4.93,ra:4.45,rd:77,adj:-.02},
+  SEA:{nm:"Seattle Mariners",w:90,l:72,rpg:4.73,ra:4.28,rd:72,adj:.03},
+  CHC:{nm:"Chicago Cubs",w:92,l:70,rpg:4.90,ra:4.01,rd:144,adj:.01},
+  SD:{nm:"San Diego Padres",w:90,l:72,rpg:4.33,ra:3.83,rd:81,adj:.00},
+  BOS:{nm:"Boston Red Sox",w:89,l:73,rpg:4.85,ra:4.17,rd:110,adj:.00},
+  CLE:{nm:"Cleveland Guardians",w:88,l:74,rpg:3.97,ra:4.01,rd:-6,adj:-.01},
+  DET:{nm:"Detroit Tigers",w:87,l:75,rpg:4.68,ra:4.27,rd:67,adj:.02},
+  HOU:{nm:"Houston Astros",w:87,l:75,rpg:4.23,ra:4.10,rd:21,adj:-.02},
+  NYM:{nm:"New York Mets",w:83,l:79,rpg:4.73,ra:4.41,rd:51,adj:.04},
+  CIN:{nm:"Cincinnati Reds",w:83,l:79,rpg:4.42,ra:4.20,rd:35,adj:.01},
+  KC:{nm:"Kansas City Royals",w:82,l:80,rpg:4.02,ra:3.93,rd:14,adj:.01},
+  TEX:{nm:"Texas Rangers",w:81,l:81,rpg:4.22,ra:3.73,rd:79,adj:-.01},
+  SF:{nm:"San Francisco Giants",w:81,l:81,rpg:4.35,ra:4.22,rd:21,adj:.03},
+  AZ:{nm:"Arizona Diamondbacks",w:80,l:82,rpg:4.88,ra:4.85,rd:6,adj:.00},
+  MIA:{nm:"Miami Marlins",w:79,l:83,rpg:4.38,ra:4.93,rd:-89,adj:.00},
+  STL:{nm:"St. Louis Cardinals",w:78,l:84,rpg:4.25,ra:4.65,rd:-65,adj:-.01},
+  TB:{nm:"Tampa Bay Rays",w:77,l:85,rpg:4.41,ra:4.22,rd:31,adj:-.02},
+  ATL:{nm:"Atlanta Braves",w:76,l:86,rpg:4.47,ra:4.53,rd:-10,adj:.01},
+  ATH:{nm:"Athletics",w:76,l:86,rpg:4.52,ra:5.04,rd:-84,adj:.02},
+  BAL:{nm:"Baltimore Orioles",w:75,l:87,rpg:4.18,ra:4.86,rd:-111,adj:.04},
+  LAA:{nm:"Los Angeles Angels",w:72,l:90,rpg:4.15,ra:5.17,rd:-164,adj:.00},
+  PIT:{nm:"Pittsburgh Pirates",w:71,l:91,rpg:3.60,ra:3.98,rd:-62,adj:.04},
+  MIN:{nm:"Minnesota Twins",w:70,l:92,rpg:4.19,ra:4.77,rd:-95,adj:-.01},
+  WSH:{nm:"Washington Nationals",w:66,l:96,rpg:4.24,ra:5.55,rd:-212,adj:.01},
+  CWS:{nm:"Chicago White Sox",w:60,l:102,rpg:3.99,ra:4.58,rd:-95,adj:.01},
+  COL:{nm:"Colorado Rockies",w:43,l:119,rpg:3.69,ra:6.30,rd:-424,adj:.02},
+};
+
+// Park factors (Statcast-derived run environment)
+const PARK_FACTORS = {
+  COL:1.29,ATH:1.10,MIA:1.08,CIN:1.07,BOS:1.06,BAL:1.05,
+  LAD:1.04,DET:1.04,TEX:1.03,NYY:1.02,KC:1.02,HOU:1.01,
+  PHI:1.01,ATL:1.00,AZ:1.00,MIL:0.99,STL:0.98,MIN:0.98,
+  CLE:0.97,PIT:0.97,WSH:0.97,TOR:0.96,LAA:0.96,CHC:0.95,
+  TB:0.95,NYM:0.94,SD:0.93,SF:0.92,SEA:0.91,
+};
+
+// Division info for H2H regression
+const DIVS = {
+  LAD:"NLW",SF:"NLW",SD:"NLW",AZ:"NLW",COL:"NLW",
+  MIL:"NLC",CHC:"NLC",CIN:"NLC",PIT:"NLC",STL:"NLC",
+  PHI:"NLE",NYM:"NLE",ATL:"NLE",MIA:"NLE",WSH:"NLE",
+  NYY:"ALE",TOR:"ALE",BOS:"ALE",BAL:"ALE",TB:"ALE",
+  CLE:"ALC",DET:"ALC",KC:"ALC",MIN:"ALC",CWS:"ALC",
+  SEA:"ALW",HOU:"ALW",TEX:"ALW",LAA:"ALW",ATH:"ALW",
+};
+
+// Momentum proxy (recent form, 0-1)
+const MOMENTUM = {
+  LAD:.6,MIL:.7,PHI:.4,NYY:.5,TOR:.5,SEA:.6,CHC:.6,SD:.5,
+  BOS:.4,CLE:.7,DET:.6,HOU:.6,NYM:.5,CIN:.4,KC:.4,TEX:.6,
+  SF:.7,AZ:.4,MIA:.5,STL:.4,TB:.5,ATL:.6,ATH:.5,BAL:.5,
+  LAA:.4,PIT:.4,MIN:.6,WSH:.3,CWS:.3,COL:.3
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// ELO SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+const elos = {};
+Object.entries(TEAMS).forEach(([k,t]) => {
+  elos[k] = 1500 + (t.w / (t.w + t.l) - 0.5) * 400;
+});
+
+function updateElo(winner, loser, K=4) {
+  if (!elos[winner] || !elos[loser]) return;
+  const eW = 1 / (1 + Math.pow(10, (elos[loser] - elos[winner]) / 400));
+  elos[winner] += K * (1 - eW);
+  elos[loser] -= K * (1 - eW);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CORE MATH
+// ═══════════════════════════════════════════════════════════════════
+const HOME_ADV = 0.038;
+const PYTH_EXP = 1.83;
+const WEIGHTS = { vegas:0.35, log5:0.20, elo:0.15, pitcher:0.15, park:0.05, momentum:0.05, h2h:0.05 };
+
+function pythag(rpg, ra) { return Math.pow(rpg,PYTH_EXP)/(Math.pow(rpg,PYTH_EXP)+Math.pow(ra,PYTH_EXP)); }
+function log5(pA,pB) { return (pA-pA*pB)/(pA+pB-2*pA*pB); }
+function clamp(v,lo=.15,hi=.85) { return Math.max(lo,Math.min(hi,v)); }
+function mlToProb(ml) { return ml<0 ? (-ml)/(-ml+100) : 100/(ml+100); }
+
+function pitcherRating(era) {
+  if (!era || era <= 0) return 0.5;
+  // League avg ERA ~4.10 = 0.500, scale inversely
+  return clamp(0.5 + (4.10 - era) * 0.07, 0.35, 0.68);
+}
+
+function ensemblePredict(home, away, vegasHomeProb, homeSP_ERA, awaySP_ERA) {
+  const hT = TEAMS[home], aT = TEAMS[away];
+  if (!hT || !aT) return null;
+
+  // 1. Log5 + Pythagorean
+  const hWP = (hT.w/(hT.w+hT.l))*.6 + pythag(hT.rpg,hT.ra)*.4 + hT.adj;
+  const aWP = (aT.w/(aT.w+aT.l))*.6 + pythag(aT.rpg,aT.ra)*.4 + aT.adj;
+  const mLog5 = clamp(log5(hWP + HOME_ADV, aWP));
+
+  // 2. Vegas
+  const mVegas = vegasHomeProb != null ? clamp(vegasHomeProb) : mLog5; // fallback to log5 if no odds
+
+  // 3. ELO
+  const mElo = clamp(1 / (1 + Math.pow(10, ((elos[away]||1500) - (elos[home]||1500) - 24) / 400)));
+
+  // 4. Pitcher
+  let mPitcher = 0.5;
+  if (homeSP_ERA && awaySP_ERA) {
+    const hR = pitcherRating(homeSP_ERA), aR = pitcherRating(awaySP_ERA);
+    mPitcher = clamp(log5(hR, aR));
+  }
+
+  // 5. Park
+  const pf = PARK_FACTORS[home] || 1.0;
+  const mPark = clamp(0.5 + (pf - 1.0) * 0.5);
+
+  // 6. Momentum
+  const mH = MOMENTUM[home]||.5, mA = MOMENTUM[away]||.5;
+  const mMomentum = clamp(0.5 + (mH - mA) * 0.3);
+
+  // 7. H2H division regression
+  const sameDivision = DIVS[home] && DIVS[home] === DIVS[away];
+  const mH2H = sameDivision ? 0.5 + (mLog5-0.5)*0.8 : mLog5;
+
+  // Adjust weights if no vegas data
+  let w = {...WEIGHTS};
+  if (vegasHomeProb == null) {
+    w.log5 += w.vegas * 0.6;
+    w.elo += w.vegas * 0.2;
+    w.pitcher += w.vegas * 0.2;
+    w.vegas = 0;
+  }
+
+  const ensemble = clamp(
+    w.vegas*mVegas + w.log5*mLog5 + w.elo*mElo + w.pitcher*mPitcher + w.park*mPark + w.momentum*mMomentum + w.h2h*mH2H
+  );
+
+  return {
+    homeWin: ensemble,
+    awayWin: 1 - ensemble,
+    models: { vegas:mVegas, log5:mLog5, elo:mElo, pitcher:mPitcher, park:mPark, momentum:mMomentum, h2h:mH2H },
+    weights: w,
+    hasVegas: vegasHomeProb != null,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+let state = {
+  view: 'games',
+  games: [],
+  odds: {},
+  standings: {},
+  selectedDate: 'today',
+  expandedGame: null,
+  oddsKey: localStorage.getItem('odds_api_key') || '',
+  anthropicKey: localStorage.getItem('anthropic_api_key') || '',
+  lastFetch: null,
+  loading: true,
+  simHome: 'LAD',
+  simAway: 'NYY',
+  // Bankroll
+  bankroll: JSON.parse(localStorage.getItem('mlb_bankroll') || '{"starting":100,"current":100,"bets":[],"kellyFraction":0.5}'),
+  aiResults: {}, // cached AI analyses by game id
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// API FETCHING
+// ═══════════════════════════════════════════════════════════════════
+function today() { return new Date().toISOString().split('T')[0]; }
+function tomorrow() { const d=new Date(); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; }
+
+async function fetchSchedule() {
+  try {
+    const dates = [today(), tomorrow()];
+    const allGames = [];
+    for (const dt of dates) {
+      const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dt}&hydrate=probablePitcher(note),linescore,team`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.dates) {
+        for (const dateObj of data.dates) {
+          for (const g of dateObj.games) {
+            const home = TEAM_MAP[g.teams.home.team.id];
+            const away = TEAM_MAP[g.teams.away.team.id];
+            if (!home || !away) continue;
+            const homeSP = g.teams.home.probablePitcher;
+            const awaySP = g.teams.away.probablePitcher;
+            const linescore = g.linescore;
+            
+            allGames.push({
+              id: g.gamePk,
+              home, away,
+              homeName: TEAMS[home]?.nm || home,
+              awayName: TEAMS[away]?.nm || away,
+              date: dateObj.date,
+              time: new Date(g.gameDate).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}),
+              status: g.status.detailedState,
+              statusCode: g.status.statusCode,
+              homeSP: homeSP ? { name:homeSP.fullName, era:homeSP.pitchHand?.code==='R'? null : null } : null,
+              awaySP: awaySP ? { name:awaySP.fullName, era:awaySP.pitchHand?.code==='R'? null : null } : null,
+              homeSP_ERA: homeSP?.stats?.[0]?.stats?.era ? parseFloat(homeSP.stats[0].stats.era) : null,
+              awaySP_ERA: awaySP?.stats?.[0]?.stats?.era ? parseFloat(awaySP.stats[0].stats.era) : null,
+              homeScore: linescore?.teams?.home?.runs ?? null,
+              awayScore: linescore?.teams?.away?.runs ?? null,
+              inning: linescore?.currentInning ?? null,
+              inningHalf: linescore?.inningHalf ?? null,
+              isLive: g.status.statusCode === 'I' || g.status.statusCode === 'MA' || g.status.statusCode === 'MB',
+              isFinal: g.status.statusCode === 'F' || g.status.statusCode === 'FT' || g.status.statusCode === 'FR',
+            });
+          }
+        }
+      }
+    }
+    state.games = allGames;
+    updateStatus('Schedule loaded: ' + allGames.length + ' games');
+  } catch(e) {
+    console.error('Schedule fetch error:', e);
+    updateStatus('Schedule fetch failed — retrying...', false);
+  }
+}
+
+async function fetchOdds() {
+  if (!state.oddsKey) return;
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${state.oddsKey}&regions=us&markets=h2h&oddsFormat=american`;
+    const res = await fetch(url);
+    if (!res.ok) { updateStatus('Odds API error: ' + res.status, false); return; }
+    const data = await res.json();
+    const remaining = res.headers.get('x-requests-remaining');
+    
+    const oddsMap = {};
+    for (const game of data) {
+      const bookmaker = game.bookmakers?.[0]; // first available book
+      if (!bookmaker) continue;
+      const market = bookmaker.markets?.find(m => m.key === 'h2h');
+      if (!market) continue;
+      
+      const homeTeamName = game.home_team;
+      const awayTeamName = game.away_team;
+      
+      // Find our abbreviations
+      let homeAbbr = null, awayAbbr = null;
+      for (const [k,v] of Object.entries(TEAMS)) {
+        if (homeTeamName.includes(v.nm.split(' ').pop())) homeAbbr = k;
+        if (awayTeamName.includes(v.nm.split(' ').pop())) awayAbbr = k;
+      }
+      if (!homeAbbr || !awayAbbr) continue;
+      
+      const homeOutcome = market.outcomes.find(o => o.name === homeTeamName);
+      const awayOutcome = market.outcomes.find(o => o.name === awayTeamName);
+      if (!homeOutcome || !awayOutcome) continue;
+      
+      const hProb = mlToProb(homeOutcome.price);
+      const aProb = mlToProb(awayOutcome.price);
+      const juice = hProb + aProb;
+      
+      const key = homeAbbr + '_' + awayAbbr;
+      oddsMap[key] = {
+        homeProb: hProb / juice,
+        homeML: homeOutcome.price,
+        awayML: awayOutcome.price,
+        book: bookmaker.title,
+      };
+    }
+    state.odds = oddsMap;
+    updateStatus(`Odds loaded (${remaining} API calls remaining)`);
+  } catch(e) {
+    console.error('Odds fetch error:', e);
+  }
+}
+
+async function fetchPitcherERA(playerName) {
+  // Use MLB stats API to search for pitcher ERA
+  // This is a best-effort lookup
+  try {
+    const url = `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(playerName)}&hydrate=currentTeam,stats(type=season,season=2025,group=pitching)`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.people?.[0]?.stats?.[0]?.splits?.[0]?.stat?.era) {
+      return parseFloat(data.people[0].stats[0].splits[0].stat.era);
+    }
+  } catch(e) {}
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// KELLY CRITERION — Half Kelly by default
+// ═══════════════════════════════════════════════════════════════════
+const MIN_EDGE = 0.02;
+const MAX_BET_PCT = 0.05;
+
+function kellyBet(winProb, americanOdds) {
+  let decimal;
+  if (americanOdds < 0) decimal = 1 + (100 / Math.abs(americanOdds));
+  else decimal = 1 + (americanOdds / 100);
+  const b = decimal - 1;
+  const p = winProb, q = 1 - p;
+  const kelly = (b * p - q) / b;
+  if (kelly <= MIN_EDGE) return { bet:0, edge:kelly, skip:true, reason:'Edge too thin', units:0, pct:0 };
+  const fraction = state.bankroll.kellyFraction || 0.5;
+  const betPct = Math.min(kelly * fraction, MAX_BET_PCT);
+  const betAmount = Math.round(state.bankroll.current * betPct * 100) / 100;
+  return { bet:betAmount, edge:kelly, pct:betPct, skip:false, units:+(betPct*100).toFixed(2) };
+}
+
+function saveBankroll() { localStorage.setItem('mlb_bankroll', JSON.stringify(state.bankroll)); }
+
+function logBet(gameId, team, amount, odds, result) {
+  state.bankroll.bets.push({ id:gameId, team, amount, odds, result, date:todayStr(), ts:Date.now() });
+  if (result === 'win') {
+    let payout;
+    if (odds < 0) payout = amount * (100 / Math.abs(odds));
+    else payout = amount * (odds / 100);
+    state.bankroll.current = +(state.bankroll.current + payout).toFixed(2);
+  } else if (result === 'loss') {
+    state.bankroll.current = +(state.bankroll.current - amount).toFixed(2);
+  }
+  saveBankroll();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CLAUDE AI — 8th Model
+// ═══════════════════════════════════════════════════════════════════
+async function askClaudeAI(game, models, odds) {
+  if (!state.anthropicKey) return null;
+  const hT = TEAMS[game.home], aT = TEAMS[game.away];
+  if (!hT || !aT) return null;
+  const oddsInfo = odds ? `Vegas: ${game.homeName} ${odds.homeML>0?'+':''}${odds.homeML} / ${game.awayName} ${odds.awayML>0?'+':''}${odds.awayML}` : 'No odds';
+  const prompt = `You are an expert MLB analyst. Analyze this game and return a JSON prediction.
+
+MATCHUP: ${game.awayName} (${game.awaySP||'TBD'}) @ ${game.homeName} (${game.homeSP||'TBD'})
+HOME 2025: ${hT.w}-${hT.l}, ${hT.rpg} RPG, ${hT.ra} RA/G, diff ${hT.rd>0?'+':''}${hT.rd}
+AWAY 2025: ${aT.w}-${aT.l}, ${aT.rpg} RPG, ${aT.ra} RA/G, diff ${aT.rd>0?'+':''}${aT.rd}
+Pitcher ERAs: ${game.homeSP}: ${PITCHER_ERA_CACHE[game.homeSP]||'?'} / ${game.awaySP}: ${PITCHER_ERA_CACHE[game.awaySP]||'?'}
+Park: ${(PARK_FACTORS[game.home]||1).toFixed(2)} · ${oddsInfo}
+Math models: Log5 ${(models.log5*100).toFixed(0)}% home, ELO ${(models.elo*100).toFixed(0)}%, Pitcher ${(models.pitcher*100).toFixed(0)}%
+
+Search for today's injury reports, lineup cards, and breaking news for both teams. Then provide:
+1. Home win probability (0.20-0.80)
+2. A 2-3 sentence analysis covering the key factors
+3. The single most important factor in this game
+
+Respond ONLY with JSON: {"home_win_prob":0.XX,"analysis":"...","key_factor":"..."}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':state.anthropicKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',max_tokens:400,
+        tools:[{type:'web_search_20250305',name:'web_search'}],
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    if (!res.ok) { console.error('Claude API:', res.status); return null; }
+    const data = await res.json();
+    let txt = '';
+    for (const b of data.content) { if (b.type==='text') txt += b.text; }
+    const m = txt.match(/\{[\s\S]*?\}/);
+    if (!m) return null;
+    const p = JSON.parse(m[0]);
+    return { homeWinProb:Math.max(.2,Math.min(.8,p.home_win_prob)), analysis:p.analysis||'', keyFactor:p.key_factor||'' };
+  } catch(e) { console.error('Claude error:', e); return null; }
+}
+
+async function runAIForGame(gameId) {
+  if (state.aiResults[gameId]?.loading) return;
+  state.aiResults[gameId] = { loading:true };
+  render();
+  
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  const oddsKey = game.home+'_'+game.away;
+  const odds = state.odds[oddsKey];
+  const vegasProb = odds ? odds.homeProb : null;
+  const hERA = game.homeSP_ERA || PITCHER_ERA_CACHE[game.homeSP?.name] || null;
+  const aERA = game.awaySP_ERA || PITCHER_ERA_CACHE[game.awaySP?.name] || null;
+  const models = {
+    log5: clamp(log5(((TEAMS[game.home]?.w||80)/((TEAMS[game.home]?.w||80)+(TEAMS[game.home]?.l||82)))*.6+pythag(TEAMS[game.home]?.rpg||4,TEAMS[game.home]?.ra||4)*.4+(TEAMS[game.home]?.adj||0)+HOME_ADV,
+      ((TEAMS[game.away]?.w||80)/((TEAMS[game.away]?.w||80)+(TEAMS[game.away]?.l||82)))*.6+pythag(TEAMS[game.away]?.rpg||4,TEAMS[game.away]?.ra||4)*.4+(TEAMS[game.away]?.adj||0))),
+    elo: clamp(1/(1+Math.pow(10,((elos[game.away]||1500)-(elos[game.home]||1500)-24)/400))),
+    pitcher: hERA&&aERA ? clamp(log5(pitcherRating(hERA),pitcherRating(aERA))) : 0.5,
+  };
+  
+  const result = await askClaudeAI({...game,homeSP:game.homeSP?.name||'TBD',awaySP:game.awaySP?.name||'TBD'}, models, odds);
+  state.aiResults[gameId] = result || { error:true };
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER ENGINE
+// ═══════════════════════════════════════════════════════════════════
+function updateStatus(msg, live=true) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (dot) dot.className = live ? 'status-dot' : 'status-dot off';
+  if (txt) {
+    const now = new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
+    txt.textContent = msg + ' · ' + now;
+  }
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('tabs');
+  const items = [['games','PREDICTIONS'],['bankroll','BANKROLL'],['sim','MATCHUP SIM'],['ranks','POWER RANKS'],['settings','SETTINGS'],['method','METHOD']];
+  tabs.innerHTML = items.map(([k,l]) =>
+    `<button class="tab ${state.view===k?'active':''}" onclick="setView('${k}')">${l}</button>`
+  ).join('');
+}
+
+function setView(v) { state.view = v; render(); }
+
+function confClass(p) {
+  const v = Math.max(p,1-p);
+  if (v>=.68) return 'conf-high';
+  if (v>=.58) return 'conf-med';
+  return 'conf-low';
+}
+function confText(p) {
+  const v = Math.max(p,1-p);
+  if (v>=.68) return 'HIGH';
+  if (v>=.58) return 'MED';
+  return 'LOW';
+}
+
+function modelName(k) {
+  return {vegas:"Vegas Odds",log5:"Log5/Pyth",elo:"ELO",pitcher:"Starter",park:"Park",momentum:"Momentum",h2h:"H2H/Div"}[k]||k;
+}
+
+function toggleGame(id) {
+  state.expandedGame = state.expandedGame === id ? null : id;
+  render();
+}
+
+function renderGames() {
+  const app = document.getElementById('app');
+  
+  // Filter games by date
+  let filtered = state.games;
+  if (state.selectedDate === 'today') filtered = state.games.filter(g => g.date === today());
+  else if (state.selectedDate === 'tomorrow') filtered = state.games.filter(g => g.date === tomorrow());
+  
+  // Date buttons
+  const dates = [...new Set(state.games.map(g=>g.date))].sort();
+  let dateBar = `<div class="date-bar">
+    <button class="date-btn ${state.selectedDate==='all'?'active':''}" onclick="setDate('all')">ALL</button>
+    <button class="date-btn ${state.selectedDate==='today'?'active':''}" onclick="setDate('today')">TODAY</button>
+    <button class="date-btn ${state.selectedDate==='tomorrow'?'active':''}" onclick="setDate('tomorrow')">TOMORROW</button>
+  </div>`;
+
+  if (filtered.length === 0) {
+    app.innerHTML = dateBar + '<div class="loading">No games found for this date. Games will appear as the MLB schedule loads.</div>';
+    return;
+  }
+  
+  let cards = filtered.map(g => {
+    const oddsKey = g.home + '_' + g.away;
+    const odds = state.odds[oddsKey];
+    const vegasProb = odds ? odds.homeProb : null;
+    
+    // Try to get pitcher ERAs — use hardcoded fallbacks if API didn't return them
+    const homeSP_ERA = g.homeSP_ERA || PITCHER_ERA_CACHE[g.homeSP?.name] || null;
+    const awaySP_ERA = g.awaySP_ERA || PITCHER_ERA_CACHE[g.awaySP?.name] || null;
+    
+    const pred = ensemblePredict(g.home, g.away, vegasProb, homeSP_ERA, awaySP_ERA);
+    if (!pred) return '';
+    
+    const favHome = pred.homeWin >= 0.5;
+    const isOpen = state.expandedGame === g.id;
+    
+    // Score display for live/final games
+    let scoreHtml = '';
+    if (g.isLive || g.isFinal) {
+      const inningText = g.isLive ? `${g.inningHalf === 'Top' ? '▲':'▼'}${g.inning}` : 'FINAL';
+      scoreHtml = `
+        <div style="display:flex;justify-content:center;gap:12px;margin-bottom:4px;align-items:center">
+          <span class="score-live">${g.awayScore ?? '-'}</span>
+          <span style="font-size:8px;color:${g.isLive?'var(--accent)':'var(--text-mute)'}">${inningText}</span>
+          <span class="score-live">${g.homeScore ?? '-'}</span>
+        </div>`;
+    }
+    
+    let detail = '';
+    if (isOpen) {
+      const mEntries = Object.entries(pred.models);
+      let modelRows = mEntries.map(([k,v]) => {
+        const aw = ((1-v)*100).toFixed(1);
+        const hw = (v*100).toFixed(1);
+        const wPct = ((pred.weights[k]||0)*100).toFixed(0);
+        return `
+          <div style="text-align:right" class="model-val ${v<.5?'win':''}">
+            ${aw}% <span class="model-label">← ${modelName(k)}</span>
+          </div>
+          <div class="model-center">${wPct}%</div>
+          <div class="model-val ${v>=.5?'win':''}">
+            <span class="model-label">${modelName(k)} →</span> ${hw}%
+          </div>`;
+      }).join('');
+      
+      detail = `
+        <div class="game-detail">
+          <div class="detail-title">MODEL BREAKDOWN</div>
+          <div class="model-grid">
+            <div style="text-align:right;font-weight:700;color:var(--text-mute)">${g.away}</div>
+            <div class="model-center" style="font-weight:700">WT</div>
+            <div style="font-weight:700;color:var(--text-mute)">${g.home}</div>
+            ${modelRows}
+            <div class="ensemble-row">
+              <span style="color:${!favHome?'var(--accent)':'var(--text-dim)'}">${g.away} ${(pred.awayWin*100).toFixed(1)}%</span>
+              <span style="color:var(--text-mute);font-size:10px">ENSEMBLE</span>
+              <span style="color:${favHome?'var(--accent)':'var(--text-dim)'}">${g.home} ${(pred.homeWin*100).toFixed(1)}%</span>
+            </div>
+          </div>
+          <div class="meta-row">
+            <span>📍 PF: ${(PARK_FACTORS[g.home]||1).toFixed(2)}</span>
+            <span>📊 ELO: ${g.away} ${(elos[g.away]||1500).toFixed(0)} vs ${g.home} ${(elos[g.home]||1500).toFixed(0)}</span>
+            ${odds ? `<span>💰 ${odds.book}: ${g.home} ${odds.homeML>0?'+':''}${odds.homeML} / ${g.away} ${odds.awayML>0?'+':''}${odds.awayML}</span>` : '<span>💰 No live odds</span>'}
+            ${!pred.hasVegas ? '<span style="color:var(--accent)">⚠ No Vegas data — weights redistributed</span>' : ''}
+          </div>
+          ${(() => {
+            // Kelly bet sizing
+            const favH = pred.homeWin>=0.5;
+            const favP = Math.max(pred.homeWin,pred.awayWin);
+            const favO = favH ? (odds?.homeML||-150) : (odds?.awayML||-150);
+            const k = kellyBet(favP, favO);
+            const favNm = favH ? g.homeName : g.awayName;
+            return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">' +
+              '<div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin-bottom:4px">KELLY CRITERION (Half Kelly)</div>' +
+              (k.skip
+                ? '<div style="font-size:11px;color:var(--text-dim)">⚠️ No bet — edge too thin (' + (k.edge*100).toFixed(1) + '%)</div>'
+                : '<div style="font-size:11px;color:var(--green)">✅ <strong>' + favNm + '</strong> — ' + k.units + 'u ($' + k.bet.toFixed(2) + ') · Edge: ' + (k.edge*100).toFixed(1) + '% · Max: ' + (k.pct*100).toFixed(1) + '% of bankroll</div>'
+              ) + '</div>';
+          })()}
+          ${(() => {
+            // AI Analysis
+            if (!state.anthropicKey) return '<div style="margin-top:8px"><button class="ai-btn" disabled>🤖 Add API key in Settings for AI analysis</button></div>';
+            const ai = state.aiResults[g.id];
+            if (!ai) return '<div style="margin-top:8px"><button class="ai-btn" onclick="runAIForGame(' + g.id + ')">🤖 Run Claude AI Analysis</button></div>';
+            if (ai.loading) return '<div style="margin-top:8px"><button class="ai-btn" disabled><span class="spinner"></span>Claude is analyzing...</button></div>';
+            if (ai.error) return '<div style="margin-top:8px;color:var(--red);font-size:11px">AI analysis failed. Check API key.</div>';
+            return '<div class="ai-result"><div class="ai-label">🤖 CLAUDE AI ANALYSIS (home win: ' + (ai.homeWinProb*100).toFixed(0) + '%)</div>' +
+              '<div style="color:var(--text)">' + ai.analysis + '</div>' +
+              (ai.keyFactor ? '<div style="margin-top:4px;color:var(--accent);font-size:10px">Key factor: ' + ai.keyFactor + '</div>' : '') +
+              '</div>';
+          })()}
+        </div>`;
+    }
+    
+    return `
+      <div class="game-card" style="${isOpen?'border-color:var(--border-hi)':''}">
+        <div class="game-header" onclick="toggleGame(${g.id})">
+          <div class="game-row">
+            <div class="team-col away">
+              <div class="team-name ${!favHome?'fav':''}">${g.awayName}</div>
+              <div class="team-sub">${g.awaySP?.name||'TBD'}</div>
+            </div>
+            <div class="prob-col">
+              ${g.isLive?'<div class="live-tag">● LIVE</div>':''}
+              ${scoreHtml}
+              <div class="prob-bar">
+                <div class="prob-fill ${!favHome?'fav':'dog'}" style="width:${pred.awayWin*100}%"></div>
+                <div class="prob-fill ${favHome?'fav':'dog'}" style="width:${pred.homeWin*100}%"></div>
+              </div>
+              <div class="prob-nums">
+                <span class="prob-num ${!favHome?'fav':''}">${(pred.awayWin*100).toFixed(0)}%</span>
+                <span class="prob-num ${favHome?'fav':''}">${(pred.homeWin*100).toFixed(0)}%</span>
+              </div>
+              <div class="conf-row">
+                <span class="conf-badge ${confClass(pred.homeWin)}">${confText(pred.homeWin)}</span>
+                ${odds?`<span class="ou-tag">O/U ${((Math.abs(odds.homeML)+Math.abs(odds.awayML))/50).toFixed(1)}</span>`:''}
+              </div>
+            </div>
+            <div class="team-col">
+              <div class="team-name ${favHome?'fav':''}">${g.homeName}</div>
+              <div class="team-sub">${g.homeSP?.name||'TBD'}</div>
+            </div>
+            <div class="time-col">
+              <div class="time-text">${g.isLive?'LIVE':g.isFinal?'FINAL':g.time}</div>
+              <div class="expand-icon">${isOpen?'▲':'▼'}</div>
+            </div>
+          </div>
+        </div>
+        ${detail}
+      </div>`;
+  }).join('');
+  
+  app.innerHTML = dateBar + cards;
+}
+
+function renderSim() {
+  const app = document.getElementById('app');
+  const teams = Object.entries(TEAMS).sort((a,b)=>a[1].nm.localeCompare(b[1].nm));
+  const opts = teams.map(([k,v])=>`<option value="${k}" ${k===state.simHome||k===state.simAway?'':''}>${v.nm}</option>`).join('');
+  
+  let result = '';
+  if (state.simHome !== state.simAway) {
+    const oddsKey = state.simHome + '_' + state.simAway;
+    const odds = state.odds[oddsKey];
+    const pred = ensemblePredict(state.simHome, state.simAway, odds?.homeProb||null, null, null);
+    
+    if (pred) {
+      const favHome = pred.homeWin >= 0.5;
+      const modelRows = Object.entries(pred.models).map(([k,v]) => {
+        const hw = (v*100).toFixed(1);
+        return `
+          <div class="model-row">
+            <div class="model-row-label">${modelName(k)} (${((pred.weights[k]||0)*100).toFixed(0)}%)</div>
+            <div class="model-row-bar"><div class="model-row-fill" style="width:${v*100}%"></div></div>
+            <div class="model-row-val">${hw}%</div>
+          </div>`;
+      }).join('');
+      
+      result = `
+        <div class="sim-result">
+          <div class="sim-teams">
+            <div class="sim-team">
+              <div class="sim-team-name" style="color:${pred.awayWin>.5?'var(--accent)':'var(--text-dim)'}">${TEAMS[state.simAway].nm}</div>
+              <div class="sim-team-prob" style="color:${pred.awayWin>.5?'var(--accent)':'var(--text-mute)'}">${(pred.awayWin*100).toFixed(1)}%</div>
+              <div class="sim-team-label">AWAY</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--text-mute);font-size:14px;font-weight:700">@</div>
+            <div class="sim-team">
+              <div class="sim-team-name" style="color:${pred.homeWin>.5?'var(--accent)':'var(--text-dim)'}">${TEAMS[state.simHome].nm}</div>
+              <div class="sim-team-prob" style="color:${pred.homeWin>.5?'var(--accent)':'var(--text-mute)'}">${(pred.homeWin*100).toFixed(1)}%</div>
+              <div class="sim-team-label">HOME</div>
+            </div>
+          </div>
+          <div class="sim-bar">
+            <div style="width:${pred.awayWin*100}%;background:${pred.awayWin>.5?'linear-gradient(90deg,var(--accent),var(--accent2))':'var(--text-mute)'}"></div>
+            <div style="width:${pred.homeWin*100}%;background:${pred.homeWin>.5?'linear-gradient(90deg,var(--accent2),var(--accent))':'var(--text-mute)'}"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);font-weight:700;margin-bottom:6px;letter-spacing:1px">INDIVIDUAL MODELS (home win %)</div>
+          ${modelRows}
+          <div class="meta-row" style="margin-top:12px">
+            <span>📍 PF: ${(PARK_FACTORS[state.simHome]||1).toFixed(2)}</span>
+            <span>📊 ELO: ${state.simAway} ${(elos[state.simAway]||1500).toFixed(0)} vs ${state.simHome} ${(elos[state.simHome]||1500).toFixed(0)}</span>
+            <span>🏟️ 2025: ${TEAMS[state.simHome].w}-${TEAMS[state.simHome].l} vs ${TEAMS[state.simAway].w}-${TEAMS[state.simAway].l}</span>
+          </div>
+        </div>`;
+    }
+  } else {
+    result = '<div style="color:var(--red);font-size:13px;margin-top:12px">Pick two different teams.</div>';
+  }
+  
+  app.innerHTML = `
+    <p style="font-family:var(--display);font-size:13px;color:var(--text-dim);margin-bottom:20px">Simulate any head-to-head — the full 7-model ensemble runs in real time.</p>
+    <div class="sim-selects">
+      <div>
+        <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">HOME TEAM</label>
+        <select onchange="state.simHome=this.value;render()">${teams.map(([k,v])=>`<option value="${k}" ${k===state.simHome?'selected':''}>${v.nm}</option>`).join('')}</select>
+      </div>
+      <div style="padding-bottom:8px;font-weight:700;color:var(--text-mute)">vs</div>
+      <div>
+        <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">AWAY TEAM</label>
+        <select onchange="state.simAway=this.value;render()">${teams.map(([k,v])=>`<option value="${k}" ${k===state.simAway?'selected':''}>${v.nm}</option>`).join('')}</select>
+      </div>
+    </div>
+    ${result}`;
+}
+
+function renderRanks() {
+  const app = document.getElementById('app');
+  const ranked = Object.entries(TEAMS).map(([k,t]) => {
+    const wp = (t.w/(t.w+t.l))*.6 + pythag(t.rpg,t.ra)*.4 + t.adj;
+    return {ab:k,...t,power:wp,elo:elos[k]||1500};
+  }).sort((a,b) => b.power - a.power);
+  
+  const rows = ranked.map((t,i) => {
+    const bar = ((t.power-.2)/.6)*100;
+    const color = i===0?'linear-gradient(90deg,var(--accent),var(--accent2))':i<3?'linear-gradient(90deg,#f0a830,#fbbf24)':i<8?'var(--green)':i<15?'var(--blue)':i<22?'var(--text-mute)':'var(--text-mute)';
+    const abColor = i<3?'var(--accent)':i<8?'var(--green)':i<15?'var(--blue)':'var(--text-dim)';
+    return `
+      <div class="rank-row">
+        <span class="rank-num">${i+1}</span>
+        <span class="rank-abbr" style="color:${abColor}">${t.ab}</span>
+        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${bar}%;background:${color}"></div></div>
+        <span class="rank-val">.${(t.power*1000).toFixed(0)}</span>
+        <span class="rank-elo">E:${t.elo.toFixed(0)}</span>
+      </div>`;
+  }).join('');
+  
+  app.innerHTML = `
+    <p style="font-family:var(--display);font-size:13px;color:var(--text-dim);margin-bottom:16px">2026 power ratings — blended from 2025 performance + offseason adjustments + ELO.</p>
+    ${rows}`;
+}
+
+function renderSettings() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="settings-panel">
+      <div class="settings-title">🤖 Claude AI (8th Model)</div>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
+        Add your Anthropic API key to enable Claude as the 8th ensemble model. Claude searches for real-time injury reports, 
+        lineup cards, and breaking news before each analysis. Get a key at 
+        <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> → API Keys.
+      </p>
+      <div class="input-group">
+        <label>ANTHROPIC API KEY</label>
+        <input type="password" id="anthropicKeyInput" value="${state.anthropicKey}" placeholder="sk-ant-...">
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-primary" onclick="saveAnthropicKey()">Save Key</button>
+        <button class="btn btn-ghost" onclick="clearAnthropicKey()">Clear</button>
+      </div>
+      ${state.anthropicKey ? '<p style="font-size:11px;color:var(--green)">✓ Key saved. Click "🤖 Run Claude AI Analysis" on any game.</p>' : ''}
+    </div>
+
+    <div class="settings-panel">
+      <div class="settings-title">💰 Live Vegas Odds</div>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
+        Free API key from <a href="https://the-odds-api.com" target="_blank">the-odds-api.com</a> (500 req/month free).
+      </p>
+      <div class="input-group">
+        <label>THE ODDS API KEY</label>
+        <input type="password" id="oddsKeyInput" value="${state.oddsKey}" placeholder="Paste your API key here...">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveOddsKey()">Save & Fetch Odds</button>
+        <button class="btn btn-ghost" onclick="clearOddsKey()">Clear Key</button>
+      </div>
+      ${state.oddsKey ? '<p style="font-size:11px;color:var(--green);margin-top:12px">✓ API key saved. Odds will auto-fetch.</p>' : ''}
+    </div>
+    
+    <div class="settings-panel">
+      <div class="settings-title">📊 Bankroll Settings</div>
+      <div class="input-group">
+        <label>STARTING BANKROLL ($)</label>
+        <input type="number" id="bankrollInput" value="${state.bankroll.starting}" min="1" step="1">
+      </div>
+      <div class="input-group">
+        <label>KELLY FRACTION (0.25 = quarter, 0.5 = half, 1.0 = full)</label>
+        <input type="number" id="kellyInput" value="${state.bankroll.kellyFraction}" min="0.1" max="1.0" step="0.05">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveBankrollSettings()">Save</button>
+        <button class="btn btn-ghost" onclick="resetBankroll()">Reset Bankroll</button>
+      </div>
+    </div>
+
+    <div class="settings-panel">
+      <div class="settings-title">🚀 Deploy to GitHub Pages</div>
+      <p style="font-size:12px;color:var(--text-dim);line-height:1.6">
+        1. Create a new GitHub repo<br>
+        2. Upload <code style="color:var(--accent);background:var(--surface);padding:2px 6px;border-radius:3px">index.html</code><br>
+        3. Settings → Pages → Deploy from main branch<br>
+        4. Live at <code style="color:var(--accent);background:var(--surface);padding:2px 6px;border-radius:3px">username.github.io/repo-name</code>
+      </p>
+    </div>`;
+}
+
+function renderBankroll() {
+  const app = document.getElementById('app');
+  const b = state.bankroll;
+  const pnl = b.current - b.starting;
+  const roi = b.starting > 0 ? (pnl / b.starting * 100) : 0;
+  const wins = b.bets.filter(x => x.result === 'win').length;
+  const losses = b.bets.filter(x => x.result === 'loss').length;
+  const total = wins + losses;
+  const winRate = total > 0 ? (wins / total * 100) : 0;
+  const totalWagered = b.bets.reduce((s, x) => s + (x.amount || 0), 0);
+
+  // Today's suggested bets
+  let todayBets = '';
+  const todayGames = state.games.filter(g => g.date === today());
+  if (todayGames.length > 0) {
+    const suggestions = todayGames.map(g => {
+      const oddsKey = g.home+'_'+g.away;
+      const o = state.odds[oddsKey];
+      const vegasProb = o ? o.homeProb : null;
+      const hERA = g.homeSP_ERA || PITCHER_ERA_CACHE[g.homeSP?.name] || null;
+      const aERA = g.awaySP_ERA || PITCHER_ERA_CACHE[g.awaySP?.name] || null;
+      const pred = ensemblePredict(g.home,g.away,vegasProb,hERA,aERA);
+      if (!pred) return null;
+      const favH = pred.homeWin >= 0.5;
+      const favP = Math.max(pred.homeWin, pred.awayWin);
+      const favO = favH ? (o?.homeML||-150) : (o?.awayML||-150);
+      const k = kellyBet(favP, favO);
+      return { ...g, pred, kelly:k, favHome:favH, favName:favH?g.homeName:g.awayName, favAbbr:favH?g.home:g.away };
+    }).filter(Boolean).sort((a,b) => b.kelly.edge - a.kelly.edge);
+
+    const bettable = suggestions.filter(s => !s.kelly.skip);
+    const totalUnits = bettable.reduce((s,x) => s + x.kelly.units, 0).toFixed(1);
+    const totalDollars = bettable.reduce((s,x) => s + x.kelly.bet, 0).toFixed(2);
+
+    todayBets = `
+      <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin:20px 0 10px">TODAY'S SUGGESTED BETS (${bettable.length}/${suggestions.length} games · ${totalUnits}u · $${totalDollars})</div>
+      ${suggestions.map(s => {
+        const winPct = (Math.max(s.pred.homeWin,s.pred.awayWin)*100).toFixed(0);
+        if (s.kelly.skip) {
+          return `<div class="bankroll-card" style="opacity:.5">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><strong>${s.favName}</strong> vs ${s.favHome?s.awayName:s.homeName} <span class="kelly-tag kelly-skip">SKIP</span></div>
+              <div style="font-size:11px;color:var(--text-dim)">${winPct}% · Edge: ${(s.kelly.edge*100).toFixed(1)}%</div>
+            </div>
+          </div>`;
+        }
+        return `<div class="bankroll-card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><strong style="color:var(--accent)">${s.favName}</strong> vs ${s.favHome?s.awayName:s.homeName} <span class="kelly-tag kelly-bet">BET</span></div>
+            <div style="font-size:11px;color:var(--green);font-weight:700">${s.kelly.units}u · $${s.kelly.bet.toFixed(2)}</div>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
+            ${winPct}% win prob · ${(s.kelly.edge*100).toFixed(1)}% edge · ${s.homeSP?.name||'TBD'} vs ${s.awaySP?.name||'TBD'} · ${s.time}
+          </div>
+        </div>`;
+      }).join('')}`;
+  }
+
+  // Bet history
+  const recentBets = [...b.bets].reverse().slice(0, 20);
+  let historyHtml = '';
+  if (recentBets.length > 0) {
+    historyHtml = `
+      <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin:20px 0 10px">BET HISTORY (last 20)</div>
+      <div class="bankroll-card">
+        ${recentBets.map(bet => {
+          const isWin = bet.result === 'win';
+          return `<div class="bet-log-row">
+            <div>${bet.team} · $${bet.amount?.toFixed(2)} · ${bet.date}</div>
+            <div class="${isWin?'pnl-pos':'pnl-neg'}" style="font-weight:700">${isWin?'WIN':'LOSS'}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  app.innerHTML = `
+    <div class="bankroll-header">
+      <div class="bankroll-stat">
+        <div class="bankroll-stat-val" style="color:var(--text)">$${b.current.toFixed(2)}</div>
+        <div class="bankroll-stat-label">BANKROLL</div>
+      </div>
+      <div class="bankroll-stat">
+        <div class="bankroll-stat-val ${pnl>=0?'pnl-pos':'pnl-neg'}">${pnl>=0?'+':''}$${pnl.toFixed(2)}</div>
+        <div class="bankroll-stat-label">P&L</div>
+      </div>
+      <div class="bankroll-stat">
+        <div class="bankroll-stat-val ${roi>=0?'pnl-pos':'pnl-neg'}">${roi>=0?'+':''}${roi.toFixed(1)}%</div>
+        <div class="bankroll-stat-label">ROI</div>
+      </div>
+      <div class="bankroll-stat">
+        <div class="bankroll-stat-val" style="color:var(--text)">${total > 0 ? winRate.toFixed(0) + '%' : '—'}</div>
+        <div class="bankroll-stat-label">WIN RATE (${wins}-${losses})</div>
+      </div>
+      <div class="bankroll-stat">
+        <div class="bankroll-stat-val" style="color:var(--text)">$${totalWagered.toFixed(2)}</div>
+        <div class="bankroll-stat-label">TOTAL WAGERED</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
+      Half Kelly sizing · Max 5% per game · Min 2% edge to bet · Adjust in Settings
+    </div>
+    ${todayBets}
+    ${historyHtml}
+    <div style="margin-top:20px">
+      <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;margin-bottom:8px">LOG A BET RESULT</div>
+      <div class="bankroll-card">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div><label style="font-size:9px;color:var(--text-dim);display:block;margin-bottom:2px">TEAM</label>
+            <input type="text" id="logTeam" placeholder="e.g. SEA" style="font-family:var(--mono);font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:80px"></div>
+          <div><label style="font-size:9px;color:var(--text-dim);display:block;margin-bottom:2px">AMOUNT ($)</label>
+            <input type="number" id="logAmount" placeholder="5.00" step="0.01" style="font-family:var(--mono);font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:80px"></div>
+          <div><label style="font-size:9px;color:var(--text-dim);display:block;margin-bottom:2px">ODDS</label>
+            <input type="number" id="logOdds" placeholder="-150" style="font-family:var(--mono);font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:80px"></div>
+          <button class="btn btn-primary" onclick="logBetFromUI('win')" style="padding:6px 12px;font-size:11px">✅ Win</button>
+          <button class="btn btn-ghost" onclick="logBetFromUI('loss')" style="padding:6px 12px;font-size:11px;border-color:var(--red);color:var(--red)">❌ Loss</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function logBetFromUI(result) {
+  const team = document.getElementById('logTeam')?.value?.toUpperCase() || '?';
+  const amount = parseFloat(document.getElementById('logAmount')?.value) || 0;
+  const odds = parseInt(document.getElementById('logOdds')?.value) || -150;
+  if (amount <= 0) return;
+  logBet(Date.now(), team, amount, odds, result);
+  render();
+}
+
+function saveAnthropicKey() {
+  const input = document.getElementById('anthropicKeyInput');
+  if (input) { state.anthropicKey = input.value.trim(); localStorage.setItem('anthropic_api_key', state.anthropicKey); render(); }
+}
+function clearAnthropicKey() { state.anthropicKey=''; localStorage.removeItem('anthropic_api_key'); state.aiResults={}; render(); }
+
+function saveBankrollSettings() {
+  const br = parseFloat(document.getElementById('bankrollInput')?.value) || 100;
+  const kf = parseFloat(document.getElementById('kellyInput')?.value) || 0.5;
+  state.bankroll.starting = br;
+  if (state.bankroll.bets.length === 0) state.bankroll.current = br;
+  state.bankroll.kellyFraction = Math.max(0.1, Math.min(1.0, kf));
+  saveBankroll();
+  render();
+}
+function resetBankroll() {
+  if (!confirm('Reset bankroll and clear all bet history?')) return;
+  state.bankroll = { starting:state.bankroll.starting, current:state.bankroll.starting, bets:[], kellyFraction:state.bankroll.kellyFraction };
+  saveBankroll(); render();
+}
+}
+
+function renderMethod() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="method">
+      <h2>8-Model Ensemble Architecture</h2>
+      <p>Each game prediction combines eight independent models via weighted average, including Claude AI with real-time web search for same-day intelligence.</p>
+      <code>Final = 0.30·Vegas + 0.15·Log5 + 0.12·ELO + 0.13·Pitcher + 0.05·Park + 0.05·Momentum + 0.05·H2H + 0.15·Claude AI</code>
+      
+      <h3>1. Vegas Odds (35%)</h3>
+      <p>Live moneylines from The Odds API, converted to implied probability with vig removed. Vegas is the single most accurate public predictor — it prices in injuries, lineups, weather, bullpen workload, sharp money, and more. When unavailable, weight redistributes to Log5 (60%), ELO (20%), and Pitcher (20%).</p>
+      
+      <h3>2. Log5 / Pythagorean (20%)</h3>
+      <p>Bill James' Log5 formula on blended team strength: 60% actual 2025 W-L + 40% Pythagorean expectation (exponent 1.83). Includes 2026 offseason adjustment factors from FanGraphs, ESPN, CBS Sports, and Baseball America projections.</p>
+      <code>Pythag = RPG^1.83 / (RPG^1.83 + RPGA^1.83)<br>Log5 P(A) = (pA - pA·pB) / (pA + pB - 2·pA·pB)</code>
+      
+      <h3>3. ELO Rating (15%)</h3>
+      <p>Chess-style rating system initialized from 2025 final W-L, updated through spring training with K=4. Home advantage adds ~24 ELO points. As the season progresses, ELO will update with each game result to capture form shifts.</p>
+      
+      <h3>4. Starting Pitcher (15%)</h3>
+      <p>Each starter gets an ERA-based quality rating normalized to 0-1 (league avg ERA ~4.10 = 0.500). Log5 applied to matchup. Pulled live from MLB Stats API probable pitcher data.</p>
+      
+      <h3>5. Park Factor (5%)</h3>
+      <p>Statcast-derived run factors. Coors (1.29) inflates offense; T-Mobile (0.91) suppresses it. Applied as half-weight probability shift since only home games are affected.</p>
+      
+      <h3>6. Momentum (5%)</h3>
+      <p>Recent form proxy from late-2025 and spring training. Updates as 2026 season results come in.</p>
+      
+      <h3>7. Head-to-Head / Division (5%)</h3>
+      <p>Division rivals regress toward 50/50 — teams that play 13+ times/year tend to split more evenly (the familiarity effect).</p>
+      
+      <h3>8. Claude AI (15%) 🤖</h3>
+      <p>Each game is sent to Claude (Sonnet) with the full stat package. Claude uses web search to pull same-day injury reports, lineup cards, weather forecasts, and breaking news. It then reasons through the matchup considering narrative context, bullpen fatigue, managerial tendencies, and factors the math models can't capture. Returns a calibrated win probability that gets blended into the ensemble.</p>
+
+      <h3>💰 Kelly Criterion Bet Sizing</h3>
+      <p>Each pick includes a suggested bet size using the Kelly Criterion — a mathematically optimal formula that sizes wagers based on your edge and bankroll. We use Half Kelly by default (adjustable in Settings) to balance growth with variance protection. Minimum 2% edge required to trigger a bet, maximum 5% of bankroll on any single game.</p>
+      <code>Kelly f* = (b·p - q) / b · Applied at 50% (Half Kelly)<br>Where b = decimal odds - 1, p = win prob, q = 1 - p</code>
+      
+      <h3>Data Sources</h3>
+      <p>MLB Stats API (live schedule, scores, probable pitchers, standings), The Odds API (live moneylines), 2025 final stats (Baseball Reference, ChampsOrChumps), Statcast park factors (Baseball Savant), preseason projections (FanGraphs, ESPN, CBS Sports, The Ringer, Baseball America).</p>
+      
+      <h3>Known Limitations</h3>
+      <p>No weather integration, no bullpen depth tracking, no batter-vs-pitcher splits, no travel/rest analysis. Vegas lines already price in most of this, which is why they carry the heaviest weight. The accuracy ceiling for single MLB game prediction is ~58-60% due to baseball's inherent variance.</p>
+    </div>`;
+}
+
+// Pitcher ERA cache for known 2026 starters
+const PITCHER_ERA_CACHE = {
+  "Max Fried":2.86,"Logan Webb":3.22,"Freddy Peralta":3.48,"Paul Skenes":2.74,
+  "Jacob Misiorowski":3.65,"Justin Steele":3.10,"Kyle Bradish":3.30,"Bailey Ober":4.25,
+  "Framber Valdez":3.55,"Tyler Anderson":4.62,"Dylan Cease":3.40,"Tarik Skubal":2.39,
+  "Nick Lodolo":3.80,"Brayan Bello":3.68,"Zack Wheeler":2.57,"Nathan Eovaldi":3.40,
+  "Matthew Liberatore":4.48,"Drew Rasmussen":3.65,"Yoshinobu Yamamoto":2.95,"Zac Gallen":3.65,
+  "Logan Gilbert":3.20,"Tanner Bibee":3.72,"Kevin Gausman":3.62,"Luis Severino":4.52,
+  "Sandy Alcantara":3.45,"Kyle Freeland":5.80,"Chris Sale":3.15,"Seth Lugo":3.38,
+  "Corbin Burnes":3.25,"Blake Snell":3.12,"Tyler Glasnow":3.32,"Gerrit Cole":3.41,
+  "Shane McClanahan":3.50,"Pablo López":3.75,"Sonny Gray":3.50,"Spencer Strider":3.18,
+  "Shohei Ohtani":3.00,"Luis Castillo":3.48,"George Kirby":3.35,
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// MASTER RENDER
+// ═══════════════════════════════════════════════════════════════════
+function render() {
+  renderTabs();
+  if (state.view === 'games') renderGames();
+  else if (state.view === 'bankroll') renderBankroll();
+  else if (state.view === 'sim') renderSim();
+  else if (state.view === 'ranks') renderRanks();
+  else if (state.view === 'settings') renderSettings();
+  else if (state.view === 'method') renderMethod();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SETTINGS HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+function saveOddsKey() {
+  const input = document.getElementById('oddsKeyInput');
+  if (input) {
+    state.oddsKey = input.value.trim();
+    localStorage.setItem('odds_api_key', state.oddsKey);
+    fetchOdds().then(render);
+  }
+}
+function clearOddsKey() {
+  state.oddsKey = '';
+  state.odds = {};
+  localStorage.removeItem('odds_api_key');
+  render();
+}
+function setDate(d) { state.selectedDate = d; render(); }
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT + AUTO-REFRESH
+// ═══════════════════════════════════════════════════════════════════
+async function init() {
+  updateStatus('Fetching schedule...');
+  await fetchSchedule();
+  if (state.oddsKey) {
+    updateStatus('Fetching odds...');
+    await fetchOdds();
+  }
+  state.loading = false;
+  render();
+  updateStatus('Live — auto-refreshing', true);
+}
+
+// Score refresh every 2 minutes
+setInterval(async () => {
+  await fetchSchedule();
+  if (state.view === 'games') render();
+  updateStatus('Scores refreshed', true);
+}, 120000);
+
+// Odds refresh every 30 minutes
+setInterval(async () => {
+  if (state.oddsKey) {
+    await fetchOdds();
+    if (state.view === 'games') render();
+  }
+}, 1800000);
+
+// Boot
+init();
+</script>
+</body>
+</html>

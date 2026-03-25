@@ -1,0 +1,25 @@
+name: MLB Daily Picks
+
+on:
+  schedule:
+    # Runs at 9:00 AM Pacific (16:00 UTC) every day during baseball season
+    - cron: '0 16 * * *'
+  workflow_dispatch: # Manual trigger button in GitHub
+
+jobs:
+  post-picks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Run predictions and post to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node discord-picks.js
