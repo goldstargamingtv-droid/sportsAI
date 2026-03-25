@@ -882,10 +882,40 @@ function renderGames() {
               ) + '</div>';
           })()}
           ${(() => {
-            // AI Analysis
+            // AI Analysis — use bankroll picks as source of truth if available
             if (!state.anthropicKey) return '<div style="margin-top:8px"><button class="ai-btn" disabled>🤖 Add API key in Settings for AI analysis</button></div>';
+            
+            // Check if bankroll analysis already has a pick for this game
+            const bankrollPicks = state.aiPicks?.data?.picks;
+            if (bankrollPicks) {
+              const match = bankrollPicks.find(p => p.team === g.home || p.team === g.away || p.opponent === g.home || p.opponent === g.away);
+              if (match) {
+                const teamNm = TEAMS[match.team]?.nm || match.team || '?';
+                const confCol = match.confidence === 'high' ? 'var(--green)' : match.confidence === 'medium' ? 'var(--accent)' : 'var(--text-dim)';
+                return '<div class="ai-result" style="border-color:var(--green)">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">' +
+                  '<div><span class="ai-label">🤖 CLAUDE SAYS: BET</span></div>' +
+                  '<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;background:rgba(46,204,113,0.1);color:' + confCol + '">' + (match.confidence||'').toUpperCase() + ' CONFIDENCE</span>' +
+                  '</div>' +
+                  '<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">' +
+                  '<span style="font-family:var(--display);font-size:22px;font-weight:800;color:var(--green)">$' + (match.bet_amount||0).toFixed(2) + '</span>' +
+                  '<span style="font-family:var(--display);font-size:16px;font-weight:700;color:var(--accent)">on ' + teamNm + '</span>' +
+                  (match.win_prob ? '<span style="font-size:11px;color:var(--text-dim)">(' + (match.win_prob*100).toFixed(0) + '% win prob)</span>' : '') +
+                  '</div>' +
+                  '<div style="font-size:11px;color:var(--text-dim);line-height:1.5">' + (match.reasoning||'') + '</div>' +
+                  '</div>';
+              }
+              // Bankroll analysis exists but this game was skipped
+              const skipNote = state.aiPicks?.data?.skips;
+              return '<div class="ai-result">' +
+                '<div class="ai-label">🤖 CLAUDE SAYS: SKIP THIS GAME</div>' +
+                (skipNote && skipNote.length ? '<div style="font-size:11px;color:var(--text-dim);line-height:1.5">' + skipNote.join(' ') + '</div>' : '<div style="font-size:11px;color:var(--text-dim)">No edge found on this matchup.</div>') +
+                '</div>';
+            }
+            
+            // No bankroll analysis yet — offer per-game button OR point to bankroll
             const ai = state.aiResults[g.id];
-            if (!ai) return '<div style="margin-top:8px"><button class="ai-btn" onclick="runAIForGame(' + g.id + ')">🤖 Run Claude AI Analysis</button></div>';
+            if (!ai) return '<div style="margin-top:8px"><button class="ai-btn" onclick="runAIForGame(' + g.id + ')">🤖 Analyze This Game</button> <span style="font-size:9px;color:var(--text-mute);margin-left:6px">or use Bankroll tab for full slate</span></div>';
             if (ai.loading) return '<div style="margin-top:8px"><button class="ai-btn" disabled><span class="spinner"></span>Claude is analyzing...</button></div>';
             if (ai.error) return '<div style="margin-top:8px;color:var(--red);font-size:11px">AI analysis failed. Check your API key in Settings.</div>';
             const isBet = ai.action === 'BET' && ai.team && ai.betAmount;
